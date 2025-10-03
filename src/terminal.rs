@@ -1,7 +1,7 @@
-use crate::framebuffer::{FramebufferWriter, Color, CursorStyle};
+use crate::{data_structures::vec::{String, Vec}, framebuffer::{Color, CursorStyle, FramebufferWriter}, vec};
 use core::fmt::{self, Write};
+use crate::data_structures::vec::ToString;
 
-/// A single character cell in the terminal
 #[derive(Clone, Copy, Debug)]
 pub struct Cell {
     pub ch: char,
@@ -147,12 +147,14 @@ impl Terminal {
     }
     
     fn process_escape_sequence(&mut self) {
-        if self.escape_buffer.starts_with('[') {
-            // CSI sequence
-            self.process_csi_sequence(&self.escape_buffer[1..]);
+            if self.escape_buffer.starts_with('[') {
+                // CSI sequence: skip leading '[' and pass an owned String
+                use crate::data_structures::vec::ToString;
+                let seq = (&self.escape_buffer[1..]).to_string();
+                self.process_csi_sequence(&seq);
+            }
+            // Add support for other escape sequence types as needed
         }
-        // Add support for other escape sequence types as needed
-    }
     
     fn process_csi_sequence(&mut self, seq: &str) {
         let final_char = seq.chars().last().unwrap_or('\0');

@@ -14,6 +14,8 @@ mod framebuffer;
 mod framebuffer_ext;
 mod terminal;
 mod format;
+mod data_structures;
+mod alloc;
 entry_point!(kernel_main);
 
 pub static SERIAL: Mutex<SerialPort> = Mutex::new(unsafe { SerialPort::new(0x3F8) });

@@ -1,3 +1,4 @@
+use crate::data_structures::vec::{String, ToString, Vec};
 use crate::format_no_std;
 use crate::framebuffer::{FramebufferWriter, Color, Rect, Point};
 use core::alloc;
@@ -72,10 +73,10 @@ impl FramebufferWriter {
         let ry = ry as isize;
         let mut x = 0;
         let mut y = ry;
-        let mut rx_sq = rx * rx;
-        let mut ry_sq = ry * ry;
-        let mut two_rx_sq = 2 * rx_sq;
-        let mut two_ry_sq = 2 * ry_sq;
+        let rx_sq = rx * rx;
+        let ry_sq = ry * ry;
+        let two_rx_sq = 2 * rx_sq;
+        let two_ry_sq = 2 * ry_sq;
         let mut p;
         let mut px = 0;
         let mut py = two_rx_sq * y;
@@ -187,7 +188,10 @@ impl FramebufferWriter {
             let test_line = if line.is_empty() {
                 word.to_string()
             } else {
-                format_no_std!("{} {}", line, word)
+                {
+                    let mut buf = [0u8; 128];
+                    format_no_std!(&mut buf, "{} {}", line, word).unwrap_or_default().to_string()
+                }
             };
 
             if test_line.len() <= chars_per_line {
@@ -352,7 +356,8 @@ impl Widget {
                 }
 
                 // Progress text centered
-                let progress_text = alloc::format!("{:.0}%", progress * 100.0);
+                let mut buf = [0u8; 16];
+                let progress_text = format_no_std!(&mut buf, "{:.0}%", progress * 100.0).unwrap_or_default();
                 let text_w_px = progress_text.len() * fb.cell_w;
                 let text_h_px = fb.cell_h;
                 let text_x_px = self.rect.x + (self.rect.width.saturating_sub(text_w_px) / 2);
