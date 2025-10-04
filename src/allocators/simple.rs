@@ -1,5 +1,6 @@
+
 use core::alloc::{GlobalAlloc, Layout};
-use core::ptr::{self, NonNull};
+use core::ptr::{self};
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 // ============================================================================
@@ -81,28 +82,29 @@ impl ListNode {
     }
 }
 
-pub struct LinkedListAllocator {
-    head: Option<&'static mut ListNode>,
-}
+use core::cell::UnsafeCell;
 
+pub struct LinkedListAllocator {
+    head: UnsafeCell<Option<&'static mut ListNode>>,
+}
 impl LinkedListAllocator {
     pub const fn new() -> Self {
-        Self { head: None }
+        Self { head: UnsafeCell::new(None) }
     }
 
     pub unsafe fn init(&mut self, heap_start: usize, heap_size: usize) {
-        self.head = Some(&mut *(heap_start as *mut ListNode));
-        self.head.as_mut().unwrap().size = heap_size;
-        self.head.as_mut().unwrap().next = None;
+        let head = &mut *(heap_start as *mut ListNode);
+        head.size = heap_size;
+        head.next = None;
+        *self.head.get() = Some(head);
     }
 }
-
 unsafe impl GlobalAlloc for LinkedListAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let (size, align) = (layout.size(), layout.align());
         let size = align_up(size.max(core::mem::size_of::<ListNode>()), align);
 
-        let head_ptr = &self.head as *const _ as *mut Option<&'static mut ListNode>;
+        let head_ptr = self.head.get();
         let mut current = &mut *head_ptr;
 
         while let Some(ref mut node) = current {
@@ -120,7 +122,7 @@ unsafe impl GlobalAlloc for LinkedListAllocator {
         let node = &mut *(ptr as *mut ListNode);
         node.size = size;
         
-        let head_ptr = &self.head as *const _ as *mut Option<&'static mut ListNode>;
+        let head_ptr = self.head.get();
         node.next = (*head_ptr).take();
         *head_ptr = Some(node);
     }
@@ -140,6 +142,32 @@ impl LinkedListAllocator {
             return Err(());
         }
 
+        // Remove node from free list if exact fit
+        if alloc_start == node.start_addr() && alloc_end == node.end_addr() {
+            // This will be handled by the caller
+        } else if alloc_start == node.start_addr() {
+            // Shrink node from the front
+            node.size -= size;
+            let new_addr = node.start_addr() + size;
+            let new_node = &mut *(new_addr as *mut ListNode);
+            new_node.size = node.size;
+            new_node.next = node.next.take();
+            node.size = new_node.size;
+            node.next = new_node.next.take();
+        } else if alloc_end == node.end_addr() {
+            // Shrink node from the end
+            node.size -= size;
+        } else {
+            // Split node into two
+            let second_size = node.end_addr() - alloc_end;
+            let second_node = &mut *(alloc_end as *mut ListNode);
+            second_node.size = second_size;
+            second_node.next = node.next.take();
+
+            node.size = alloc_start - node.start_addr();
+            node.next = Some(second_node);
+        }
+
         Ok(alloc_start)
     }
 }
@@ -151,7 +179,7 @@ impl LinkedListAllocator {
 const BLOCK_SIZES: &[usize] = &[8, 16, 32, 64, 128, 256, 512, 1024, 2048];
 
 struct BlockNode {
-    next: Option<&'static mut BlockNode>,
+    next: UnsafeCell<Option<&'static mut BlockNode>>,
 }
 
 pub struct FixedSizeBlockAllocator {
@@ -185,7 +213,7 @@ unsafe impl GlobalAlloc for FixedSizeBlockAllocator {
                 let head_ptr = &self.list_heads[idx] as *const _ as *mut Option<&'static mut BlockNode>;
                 match (*head_ptr).take() {
                     Some(node) => {
-                        *head_ptr = node.next.take();
+                        *head_ptr = node.next.get().take();
                         node as *mut BlockNode as *mut u8
                     }
                     None => {
@@ -205,7 +233,7 @@ unsafe impl GlobalAlloc for FixedSizeBlockAllocator {
             Some(idx) => {
                 let head_ptr = &self.list_heads[idx] as *const _ as *mut Option<&'static mut BlockNode>;
                 let new_node = &mut *(ptr as *mut BlockNode);
-                new_node.next = (*head_ptr).take();
+                new_node.next = (*head_ptr).take().into();
                 *head_ptr = Some(new_node);
             }
             None => self.fallback.dealloc(ptr, layout),
@@ -231,7 +259,7 @@ impl<const SIZE: usize, const ALIGN: usize> SlabAllocator<SIZE, ALIGN> {
         for i in 0..num_blocks {
             let addr = slab_start + i * SIZE;
             let node = &mut *(addr as *mut BlockNode);
-            node.next = self.head.take();
+            node.next = self.head.take().into();
             self.head = Some(node);
         }
     }
@@ -256,7 +284,7 @@ unsafe impl<const SIZE: usize, const ALIGN: usize> GlobalAlloc for SlabAllocator
     unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
         let head_ptr = &self.head as *const _ as *mut Option<&'static mut BlockNode>;
         let node = &mut *(ptr as *mut BlockNode);
-        node.next = (*head_ptr).take();
+        node.next = (*head_ptr).take().into();
         *head_ptr = Some(node);
     }
 }
@@ -442,72 +470,74 @@ fn align_down(addr: usize, align: usize) -> usize {
 // ============================================================================
 // 7. POOL ALLOCATOR (Pre-allocated chunks)
 // ============================================================================
+// pub struct PoolAllocator<const CHUNK_SIZE: usize, const NUM_CHUNKS: usize>
+// where
+//     [u64; (NUM_CHUNKS + 63) / 64]: Sized,
+// {
+//     bitmap: [u64; (NUM_CHUNKS + 63) / 64],
+//     base: usize,
+// }
 
-pub struct PoolAllocator<const CHUNK_SIZE: usize, const NUM_CHUNKS: usize> {
-    bitmap: [u64; (NUM_CHUNKS + 63) / 64],
-    base: usize,
-}
+// impl<const CHUNK_SIZE: usize, const NUM_CHUNKS: usize> PoolAllocator<CHUNK_SIZE, NUM_CHUNKS> where [(); (NUM_CHUNKS + 63) / 64]: {
+//     pub const fn new() -> Self {
+//         Self {
+//             bitmap: [0; (NUM_CHUNKS + 63) / 64],
+//             base: 0,
+//         }
+//     }
 
-impl<const CHUNK_SIZE: usize, const NUM_CHUNKS: usize> PoolAllocator<CHUNK_SIZE, NUM_CHUNKS> {
-    pub const fn new() -> Self {
-        Self {
-            bitmap: [0; (NUM_CHUNKS + 63) / 64],
-            base: 0,
-        }
-    }
+//     pub unsafe fn init(&mut self, base: usize) {
+//         self.base = base;
+//     }
 
-    pub unsafe fn init(&mut self, base: usize) {
-        self.base = base;
-    }
+//     fn find_free_chunk(&self) -> Option<usize> {
+//         for (word_idx, &word) in self.bitmap.iter().enumerate() {
+//             if word != !0 {
+//                 let bit_idx = (!word).trailing_zeros() as usize;
+//                 let chunk_idx = word_idx * 64 + bit_idx;
+//                 if chunk_idx < NUM_CHUNKS {
+//                     return Some(chunk_idx);
+//                 }
+//             }
+//         }
+//         None
+//     }
 
-    fn find_free_chunk(&self) -> Option<usize> {
-        for (word_idx, &word) in self.bitmap.iter().enumerate() {
-            if word != !0 {
-                let bit_idx = (!word).trailing_zeros() as usize;
-                let chunk_idx = word_idx * 64 + bit_idx;
-                if chunk_idx < NUM_CHUNKS {
-                    return Some(chunk_idx);
-                }
-            }
-        }
-        None
-    }
+//     fn mark_used(&mut self, chunk_idx: usize) {
+//         let word_idx = chunk_idx / 64;
+//         let bit_idx = chunk_idx % 64;
+//         self.bitmap[word_idx] |= 1u64 << bit_idx;
+//     }
 
-    fn mark_used(&mut self, chunk_idx: usize) {
-        let word_idx = chunk_idx / 64;
-        let bit_idx = chunk_idx % 64;
-        self.bitmap[word_idx] |= 1u64 << bit_idx;
-    }
+//     fn mark_free(&mut self, chunk_idx: usize) {
+//         let word_idx = chunk_idx / 64;
+//         let bit_idx = chunk_idx % 64;
+//         self.bitmap[word_idx] &= !(1u64 << bit_idx);
+//     }
+// }
 
-    fn mark_free(&mut self, chunk_idx: usize) {
-        let word_idx = chunk_idx / 64;
-        let bit_idx = chunk_idx % 64;
-        self.bitmap[word_idx] &= !(1u64 << bit_idx);
-    }
-}
+// unsafe impl<const CHUNK_SIZE: usize, const NUM_CHUNKS: usize> GlobalAlloc 
+//     for PoolAllocator<CHUNK_SIZE, NUM_CHUNKS> where [(); (NUM_CHUNKS + 63) / 64]: 
+// {
+//     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+//         if layout.size() > CHUNK_SIZE {
+//             return ptr::null_mut();
+//         }
 
-unsafe impl<const CHUNK_SIZE: usize, const NUM_CHUNKS: usize> GlobalAlloc 
-    for PoolAllocator<CHUNK_SIZE, NUM_CHUNKS> 
-{
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if layout.size() > CHUNK_SIZE {
-            return ptr::null_mut();
-        }
-
-        let allocator = &mut *(self as *const _ as *mut Self);
+//         let allocator = &mut *(self as *const _ as *mut Self);
         
-        if let Some(idx) = allocator.find_free_chunk() {
-            allocator.mark_used(idx);
-            (allocator.base + idx * CHUNK_SIZE) as *mut u8
-        } else {
-            ptr::null_mut()
-        }
-    }
+//         if let Some(idx) = allocator.find_free_chunk() {
+//             allocator.mark_used(idx);
+//             (allocator.base + idx * CHUNK_SIZE) as *mut u8
+//         } else {
+//             ptr::null_mut()
+//         }
+//     }
 
-    unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
-        let allocator = &mut *(self as *const _ as *mut Self);
-        let addr = ptr as usize;
-        let chunk_idx = (addr - allocator.base) / CHUNK_SIZE;
-        allocator.mark_free(chunk_idx);
-    }
-}
+//     unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
+//         let allocator = &mut *(self as *const _ as *mut Self);
+//         let addr = ptr as usize;
+//         let chunk_idx = (addr - allocator.base) / CHUNK_SIZE;
+//         allocator.mark_free(chunk_idx);
+//     }
+// }

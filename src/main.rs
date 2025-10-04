@@ -1,7 +1,10 @@
 #![no_std]
 #![no_main]
+#![feature(alloc_error_handler)]
+#![feature(generic_const_exprs)]
 
 extern crate rlibc;
+extern crate alloc; 
 
 use bootloader_api::{entry_point, BootInfo};
 use core::fmt::Write;
@@ -15,7 +18,7 @@ mod framebuffer_ext;
 mod terminal;
 mod format;
 mod data_structures;
-mod alloc;
+mod allocators;
 entry_point!(kernel_main);
 
 pub static SERIAL: Mutex<SerialPort> = Mutex::new(unsafe { SerialPort::new(0x3F8) });
