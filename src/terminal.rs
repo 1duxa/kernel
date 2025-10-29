@@ -1,6 +1,5 @@
 use crate::{data_structures::vec::{String, Vec}, framebuffer::{Color, CursorStyle, FramebufferWriter}, vec};
 use core::fmt::{self, Write};
-use crate::data_structures::vec::ToString;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Cell {

@@ -2,6 +2,7 @@
 #![no_main]
 #![feature(alloc_error_handler)]
 #![feature(generic_const_exprs)]
+#![feature(slice_pattern)]
 
 extern crate rlibc;
 extern crate alloc; 
@@ -12,13 +13,15 @@ use core::panic::PanicInfo;
 use spin::Mutex;
 use uart_16550::SerialPort;
 
-use crate::framebuffer::{init_framebuffer, Color, Rect, FRAMEBUFFER};
+use crate::{framebuffer::{Color, FRAMEBUFFER, Rect, init_framebuffer}, terminal::Terminal};
 mod framebuffer;
 mod framebuffer_ext;
 mod terminal;
 mod format;
 mod data_structures;
 mod allocators;
+mod memory;
+
 entry_point!(kernel_main);
 
 pub static SERIAL: Mutex<SerialPort> = Mutex::new(unsafe { SerialPort::new(0x3F8) });
@@ -29,42 +32,36 @@ pub fn serial_write(s: &str) {
     let _ = write!(serial, "{}", s);
 }
 
-pub fn kernel_main(_boot_info: &'static mut BootInfo) -> ! {
-    serial_write("Hello BIOS kernel (serial)!\n");
-    init_framebuffer(_boot_info);
-    let mut guard = FRAMEBUFFER.lock();
-    let fb = guard.as_mut().expect("framebuffer not initialized");
+pub fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
+    serial_write("Initializing kernel...\n");
 
-    let info = fb.info();
-    let _ = write!(fb, "Framebuffer demo\n");
-    let _ = write!(
-        fb,
-        "Res: {}x{}  stride: {}  bpp: {}\n",
-        info.width, info.height, info.stride, info.bytes_per_pixel
-    );
+    {
+        let info_ref: &BootInfo = &*boot_info;
+        unsafe {
+            if let Err(e) = memory::init_heap(info_ref) {
+                serial_write(&alloc::format!("Failed to init heap: {}\n", e));
+                loop_arch_mm();
+            }
+        }
 
-    fb.draw_border(Color::GREEN);
-    let cell_w = 8usize;
-    let cell_h = 8usize;
-    let box_rect = Rect::new(2 * cell_w, 4 * cell_h, 40 * cell_w, 6 * cell_h);
-    fb.draw_box(box_rect, Color::CYAN, Some(" Demo Box "));
+        memory::memory_stats(info_ref);
+    } 
+    {
+        let info_mut: &'static mut BootInfo = boot_info;
+        init_framebuffer(info_mut);
+    } 
 
-    fb.move_to(3, 5);
-    fb.write_colored("White on black\n", Color::WHITE, Color::BLACK);
-    fb.write_colored("Yellow on Blue\n", Color::YELLOW, Color::BLUE);
+    {
+        let mut guard = FRAMEBUFFER.lock();
+        let fb = guard.as_mut().expect("framebuffer not initialized");
 
-    fb.move_to(3, 8);
-    fb.set_cursor_visible(true);
-    let _ = write!(fb, "Cursor visible -> ");
-    fb.set_cursor_visible(false);
-    let _ = write!(fb, "hidden\n");
+        let cols = fb.cols();
+        let rows = fb.rows();
+        let mut term = Terminal::new(cols, rows);
+        term.write("Hello world\n");
+        term.render(fb);
+    }
 
-    let status_x = fb.cols().saturating_sub(20);
-    let status_y = fb.rows().saturating_sub(3);
-    fb.move_to(status_x, status_y);
-    fb.write_colored("STATUS: OK", Color::GREEN, Color::BLACK);
-
-    // Leave the system in an idle loop
     loop_arch_mm()
 }
 
