@@ -40,7 +40,6 @@ pub trait ToString {
 impl<T: fmt::Display> ToString for T {
     fn to_string(&self) -> String {
         let mut s = String::new();
-        // Use core::fmt::write which will call `String`'s fmt::Write impl from liballoc
         let _ = core::fmt::write(&mut s, format_args!("{}", self));
         s
     }

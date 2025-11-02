@@ -1,7 +1,7 @@
-use crate::{data_structures::vec::{String, Vec}, framebuffer::{Color, CursorStyle, FramebufferWriter}, vec};
+use crate::{data_structures::vec::{String, Vec}, framebuffer::framebuffer::{Color, CursorStyle, FramebufferWriter}, vec};
 use core::fmt::{self, Write};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Cell {
     pub ch: char,
     pub fg: Color,
@@ -31,11 +31,17 @@ pub struct Terminal {
     width: usize,
     height: usize,
     
+    // Dirty tracking - which cells need re-rendering
+    dirty_lines: Vec<bool>,
+    full_redraw_needed: bool,
+    
     // Cursor state
     cursor_x: usize,
     cursor_y: usize,
     cursor_visible: bool,
     cursor_style: CursorStyle,
+    last_cursor_x: usize,
+    last_cursor_y: usize,
     
     // Colors
     current_fg: Color,
@@ -77,10 +83,14 @@ impl Terminal {
             buffer,
             width,
             height,
+            dirty_lines: vec![false; height],
+            full_redraw_needed: true,
             cursor_x: 0,
             cursor_y: 0,
             cursor_visible: true,
             cursor_style: CursorStyle::Block,
+            last_cursor_x: 0,
+            last_cursor_y: 0,
             current_fg: Color::WHITE,
             current_bg: Color::BLACK,
             default_fg: Color::WHITE,
@@ -95,6 +105,19 @@ impl Terminal {
             scroll_offset: 0,
             tab_stops,
         }
+    }
+    
+    /// Mark a line as dirty (needs re-rendering)
+    fn mark_dirty(&mut self, line: usize) {
+        if line < self.height {
+            self.dirty_lines[line] = true;
+        }
+    }
+    
+    /// Mark the cursor's old and new positions as dirty
+    fn mark_cursor_dirty(&mut self) {
+        self.mark_dirty(self.last_cursor_y);
+        self.mark_dirty(self.cursor_y);
     }
     
     /// Write text to the terminal with ANSI escape sequence support
@@ -146,14 +169,14 @@ impl Terminal {
     }
     
     fn process_escape_sequence(&mut self) {
-            if self.escape_buffer.starts_with('[') {
-                // CSI sequence: skip leading '[' and pass an owned String
-                use crate::data_structures::vec::ToString;
-                let seq = (&self.escape_buffer[1..]).to_string();
-                self.process_csi_sequence(&seq);
-            }
-            // Add support for other escape sequence types as needed
+        if self.escape_buffer.starts_with('[') {
+            // CSI sequence: skip leading '[' and pass an owned String
+            use crate::data_structures::vec::ToString;
+            let seq = (&self.escape_buffer[1..]).to_string();
+            self.process_csi_sequence(&seq);
         }
+        // Add support for other escape sequence types as needed
+    }
     
     fn process_csi_sequence(&mut self, seq: &str) {
         let final_char = seq.chars().last().unwrap_or('\0');
@@ -273,36 +296,57 @@ impl Terminal {
             underline: self.underline,
         };
         
-        self.buffer[self.cursor_y][self.cursor_x] = cell;
+        // Only mark dirty if the cell actually changed
+        if self.buffer[self.cursor_y][self.cursor_x] != cell {
+            self.buffer[self.cursor_y][self.cursor_x] = cell;
+            self.mark_dirty(self.cursor_y);
+        }
+        
+        self.last_cursor_x = self.cursor_x;
+        self.last_cursor_y = self.cursor_y;
         self.cursor_x += 1;
+        self.mark_cursor_dirty();
     }
     
     fn line_feed(&mut self) {
+        self.mark_cursor_dirty();
         self.cursor_y += 1;
         if self.cursor_y >= self.height {
             self.scroll_up();
             self.cursor_y = self.height - 1;
         }
+        self.mark_cursor_dirty();
     }
     
     fn carriage_return(&mut self) {
+        self.mark_cursor_dirty();
         self.cursor_x = 0;
+        self.mark_cursor_dirty();
     }
     
     fn tab(&mut self) {
+        self.mark_cursor_dirty();
         // Find next tab stop
         for i in (self.cursor_x + 1)..self.width {
             if self.tab_stops[i] {
                 self.cursor_x = i;
+                self.mark_cursor_dirty();
                 return;
             }
         }
         self.cursor_x = self.width - 1;
+        self.mark_cursor_dirty();
     }
     
     fn backspace(&mut self) {
         if self.cursor_x > 0 {
+            self.mark_cursor_dirty();
             self.cursor_x -= 1;
+            
+            // Erase the character
+            self.buffer[self.cursor_y][self.cursor_x] = Cell::default();
+            self.mark_dirty(self.cursor_y);
+            self.mark_cursor_dirty();
         }
     }
     
@@ -320,28 +364,47 @@ impl Terminal {
         
         // Clear bottom line
         self.buffer[self.height - 1] = vec![Cell::default(); self.width];
+        
+        // Mark all lines dirty after scroll
+        self.full_redraw_needed = true;
     }
     
     // Cursor movement methods
     fn move_cursor_to(&mut self, x: usize, y: usize) {
+        self.mark_cursor_dirty();
+        self.last_cursor_x = self.cursor_x;
+        self.last_cursor_y = self.cursor_y;
         self.cursor_x = x.min(self.width - 1);
         self.cursor_y = y.min(self.height - 1);
+        self.mark_cursor_dirty();
     }
     
     fn move_cursor_up(&mut self, n: usize) {
+        self.mark_cursor_dirty();
+        self.last_cursor_y = self.cursor_y;
         self.cursor_y = self.cursor_y.saturating_sub(n);
+        self.mark_cursor_dirty();
     }
     
     fn move_cursor_down(&mut self, n: usize) {
+        self.mark_cursor_dirty();
+        self.last_cursor_y = self.cursor_y;
         self.cursor_y = (self.cursor_y + n).min(self.height - 1);
+        self.mark_cursor_dirty();
     }
     
     fn move_cursor_left(&mut self, n: usize) {
+        self.mark_cursor_dirty();
+        self.last_cursor_x = self.cursor_x;
         self.cursor_x = self.cursor_x.saturating_sub(n);
+        self.mark_cursor_dirty();
     }
     
     fn move_cursor_right(&mut self, n: usize) {
+        self.mark_cursor_dirty();
+        self.last_cursor_x = self.cursor_x;
         self.cursor_x = (self.cursor_x + n).min(self.width - 1);
+        self.mark_cursor_dirty();
     }
     
     // Erase methods
@@ -354,6 +417,7 @@ impl Terminal {
                     for col in 0..self.width {
                         self.buffer[row][col] = Cell::default();
                     }
+                    self.mark_dirty(row);
                 }
             }
             1 => {
@@ -362,6 +426,7 @@ impl Terminal {
                     for col in 0..self.width {
                         self.buffer[row][col] = Cell::default();
                     }
+                    self.mark_dirty(row);
                 }
                 self.erase_line(1);
             }
@@ -380,18 +445,21 @@ impl Terminal {
                 for col in self.cursor_x..self.width {
                     self.buffer[self.cursor_y][col] = Cell::default();
                 }
+                self.mark_dirty(self.cursor_y);
             }
             1 => {
                 // Erase from start of line to cursor
                 for col in 0..=self.cursor_x {
                     self.buffer[self.cursor_y][col] = Cell::default();
                 }
+                self.mark_dirty(self.cursor_y);
             }
             2 => {
                 // Erase entire line
                 for col in 0..self.width {
                     self.buffer[self.cursor_y][col] = Cell::default();
                 }
+                self.mark_dirty(self.cursor_y);
             }
             _ => {}
         }
@@ -405,26 +473,59 @@ impl Terminal {
         }
         self.cursor_x = 0;
         self.cursor_y = 0;
+        self.full_redraw_needed = true;
     }
     
-    /// Render the terminal to a framebuffer
-    pub fn render(&self, fb: &mut FramebufferWriter) {
-        for (row, line) in self.buffer.iter().enumerate() {
-            for (col, cell) in line.iter().enumerate() {
-                // Set position and colors
-                fb.move_to(col, row);
-                fb.set_colors(cell.fg, cell.bg);
-                
-                // Draw character
-                let _ = write!(fb, "{}", cell.ch);
+    /// Render only the dirty (changed) parts of the terminal
+    pub fn render(&mut self, fb: &mut FramebufferWriter) {
+        if self.full_redraw_needed {
+            // Full redraw
+            for (row, line) in self.buffer.iter().enumerate() {
+                for (col, cell) in line.iter().enumerate() {
+                    fb.move_to(col, row);
+                    fb.set_colors(cell.fg, cell.bg);
+                    let _ = write!(fb, "{}", cell.ch);
+                }
+            }
+            
+            // Clear all dirty flags
+            for dirty in self.dirty_lines.iter_mut() {
+                *dirty = false;
+            }
+            self.full_redraw_needed = false;
+        } else {
+            // Incremental redraw - only dirty lines
+            for (row, &is_dirty) in self.dirty_lines.iter().enumerate() {
+                if is_dirty {
+                    let line = &self.buffer[row];
+                    for (col, cell) in line.iter().enumerate() {
+                        fb.move_to(col, row);
+                        fb.set_colors(cell.fg, cell.bg);
+                        let _ = write!(fb, "{}", cell.ch);
+                    }
+                }
+            }
+            
+            // Clear dirty flags
+            for dirty in self.dirty_lines.iter_mut() {
+                *dirty = false;
             }
         }
         
-        // Draw cursor if visible
+        // Update cursor
         if self.cursor_visible {
             fb.move_to(self.cursor_x, self.cursor_y);
             fb.set_cursor_visible(true);
         }
+        
+        // Update last cursor position
+        self.last_cursor_x = self.cursor_x;
+        self.last_cursor_y = self.cursor_y;
+    }
+    
+    /// Force a full redraw on next render
+    pub fn request_full_redraw(&mut self) {
+        self.full_redraw_needed = true;
     }
     
     /// Get terminal dimensions

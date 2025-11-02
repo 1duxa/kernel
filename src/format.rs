@@ -1,7 +1,5 @@
-// Bring in formatting core
 use core::fmt::{self, Write};
 
-/// A simple fixed-size buffer you can write formatted strings into.
 pub struct FmtBuf<'a> {
     buf: &'a mut [u8],
     pos: usize,
@@ -30,11 +28,7 @@ impl<'a> Write for FmtBuf<'a> {
     }
 }
 
-/// Your `format`-like function (returns &str instead of String).
-pub fn format_to<'a>(
-    buf: &'a mut [u8],
-    args: fmt::Arguments<'_>
-) -> Result<&'a str, fmt::Error> {
+pub fn format_to<'a>(buf: &'a mut [u8], args: fmt::Arguments<'_>) -> Result<&'a str, fmt::Error> {
     let mut f = FmtBuf::new(buf);
     f.write_fmt(args)?;
     let s = unsafe { core::str::from_utf8_unchecked(&f.buf[..f.pos]) };

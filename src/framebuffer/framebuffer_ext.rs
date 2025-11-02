@@ -1,8 +1,6 @@
 use crate::data_structures::vec::{String, ToString, Vec};
 use crate::format_no_std;
-use crate::framebuffer::{FramebufferWriter, Color, Rect, Point};
-use core::alloc;
-use core::fmt::Write;
+use crate::framebuffer::framebuffer::{Color, FramebufferWriter, Point, Rect};
 
 /// Enhanced graphics operations
 impl FramebufferWriter {
