@@ -10,11 +10,9 @@ const HEAP_SIZE: usize = 2 * 1024 * 1024; // 2 MB
 struct HeapBuffer([u8; HEAP_SIZE]);
 static mut HEAP_BUFFER: HeapBuffer = HeapBuffer([0; HEAP_SIZE]);
 
-/// Global heap allocator
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::new();
 
-/// Locked wrapper around the allocator
 pub struct LockedHeap {
     inner: Mutex<Option<FixedSizeBlockAllocator>>,
 }
@@ -27,15 +25,11 @@ impl LockedHeap {
     }
 
     pub unsafe fn init(&self, heap_start: usize, heap_size: usize) -> Result<(), &'static str> {
-        let mut allocator = FixedSizeBlockAllocator::new();
+        let allocator = FixedSizeBlockAllocator::new();
         allocator.init(heap_start, heap_size)
             .map_err(|_| "Failed to initialize allocator")?;
         *self.inner.lock() = Some(allocator);
         Ok(())
-    }
-
-    pub fn allocated_bytes(&self) -> usize {
-        0
     }
 }
 
@@ -54,7 +48,6 @@ unsafe impl GlobalAlloc for LockedHeap {
     }
 }
 
-/// Initialize heap memory using the static buffer
 pub unsafe fn init_heap(_boot_info: &BootInfo) -> Result<(), &'static str> {
     use core::fmt::Write;
     let mut serial = crate::SERIAL.lock();
@@ -70,7 +63,6 @@ pub unsafe fn init_heap(_boot_info: &BootInfo) -> Result<(), &'static str> {
     Ok(())
 }
 
-/// Get memory statistics
 pub fn memory_stats(boot_info: &BootInfo) {
     use core::fmt::Write;
     let mut serial = crate::SERIAL.lock();

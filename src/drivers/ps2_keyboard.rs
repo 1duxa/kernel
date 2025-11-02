@@ -1,36 +1,35 @@
-use spin::Mutex;
-use x86_64::instructions::port::Port;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
-pub static KEYBOARD: Mutex<PS2Keyboard> = Mutex::new(PS2Keyboard::new());
+const BUFFER_SIZE: usize = 256;
 
-pub struct PS2Keyboard {
-    data_port: Port<u8>,
-    status_port: Port<u8>,
+static mut RING_BUF: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
+static HEAD: AtomicUsize = AtomicUsize::new(0); 
+static TAIL: AtomicUsize = AtomicUsize::new(0); 
+
+pub fn enqueue_scancode(scancode: u8) {
+    let head = HEAD.load(Ordering::Relaxed);
+    let next = head.wrapping_add(1) % BUFFER_SIZE;
+    let tail = TAIL.load(Ordering::Acquire);
+    if next != tail {
+        unsafe {
+            RING_BUF[head] = scancode;
+        }
+        HEAD.store(next, Ordering::Release);
+    } 
 }
 
-impl PS2Keyboard {
-    pub const fn new() -> Self {
-        Self {
-            data_port: Port::new(0x60),
-            status_port: Port::new(0x64),
-        }
-    }
-
-    pub fn has_data(&mut self) -> bool {
-        unsafe { self.status_port.read() & 0x01 != 0 }
-    }
-
-    /// Read a scancode from the keyboard (non-blocking)
-    pub fn read_scancode(&mut self) -> Option<u8> {
-        if self.has_data() {
-            Some(unsafe { self.data_port.read() })
-        } else {
-            None
-        }
+pub fn dequeue_scancode() -> Option<u8> {
+    let tail = TAIL.load(Ordering::Relaxed);
+    let head = HEAD.load(Ordering::Acquire);
+    if tail == head {
+        None
+    } else {
+        let sc = unsafe { RING_BUF[tail] };
+        let next = tail.wrapping_add(1) % BUFFER_SIZE;
+        TAIL.store(next, Ordering::Release);
+        Some(sc)
     }
 }
-
-/// PS/2 Scancode Set 1 decoder
 pub struct ScancodeDecoder {
     is_extended: bool,
     shift_pressed: bool,
@@ -48,9 +47,7 @@ impl ScancodeDecoder {
         }
     }
 
-    /// Process a scancode and return the corresponding character if any
     pub fn process_scancode(&mut self, scancode: u8) -> Option<KeyEvent> {
-        // Extended scancode prefix
         if scancode == 0xE0 {
             self.is_extended = true;
             return None;

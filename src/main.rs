@@ -10,15 +10,23 @@ use core::panic::PanicInfo;
 use spin::Mutex;
 use uart_16550::SerialPort;
 
-use crate::{drivers::ps2_keyboard, framebuffer::framebuffer::{FRAMEBUFFER, init_framebuffer}, terminal::Terminal};
+use crate::{
+    drivers::ps2_keyboard,
+    framebuffer::framebuffer::{init_framebuffer, FRAMEBUFFER},
+    kernel::init_kernel,
+    terminal::Terminal,
+    ui::Theme,
+};
 mod allocators;
 mod data_structures;
 mod drivers;
-mod format;
 mod framebuffer;
+mod input;
 mod interrupts;
+mod kernel;
 mod memory;
 mod terminal;
+mod ui;
 
 entry_point!(kernel_main);
 
@@ -34,8 +42,6 @@ macro_rules! println {
 }
 
 pub fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
-    println!("Initializing kernel...\n");
-
     unsafe {
         if let Err(e) = memory::init_heap(&boot_info) {
             println!("Failed to init heap: {}\n", e);
@@ -44,54 +50,61 @@ pub fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     }
 
     memory::memory_stats(&boot_info);
-    interrupts::init();
-    println!("Interrupts initialized.\n");
-    init_framebuffer(boot_info);
 
-    let (cols, rows) = {
-        let mut guard = FRAMEBUFFER.lock();
-        let fb = guard.as_mut().expect("framebuffer not initialized");
-        (fb.cols(), fb.rows())
+    if init_kernel().is_err() {
+        println!("Kernel initialization failed!");
+        loop_arch_mm();
+    }
+
+    init_framebuffer(boot_info);
+    let theme = Theme::dark_modern();
+
+    let (fb_width, fb_height) = {
+        let guard = FRAMEBUFFER.lock();
+        let fb = guard.as_ref().unwrap();
+        (fb.width, fb.height)
     };
 
-    let mut term = Terminal::new(cols, rows);
+    let cols = fb_width / 10; 
+    let rows = fb_height / 20; 
 
-    term.write("\x1b[1;32m"); 
-    term.write("Welcome to RustOS!\n");
-    term.write("\x1b[0m"); 
-    term.write("Type something...\n\n> ");
+    let mut term = Terminal::new(cols, rows, &theme);
 
-    let mut guard = FRAMEBUFFER.lock();
-    let fb = guard.as_mut().unwrap();
-    term.render(fb);
+    {
+        let mut guard = FRAMEBUFFER.lock();
+        let fb = guard.as_mut().unwrap();
+        fb.clear(theme.background);
+    }
+
+    term.write("\x1b[1;32mWelcome to RustOS!\x1b[0m\n");
+    term.write("Hardware interrupts: \x1b[32mEnabled\x1b[0m\n");
+    term.write("\n> ");
+
+    {
+        let mut guard = FRAMEBUFFER.lock();
+        let fb = guard.as_mut().unwrap();
+        term.render(fb);
+    }
 
     let mut decoder = ps2_keyboard::ScancodeDecoder::new();
 
     loop {
-        if let Some(scancode) = ps2_keyboard::KEYBOARD.lock().read_scancode() {
-            if let Some(key_event) = decoder.process_scancode(scancode) {
-                // Handle special keys
-                if key_event.ctrl && key_event.character == 'c' {
-                    term.write("\n^C\n> ");
-                } else if key_event.ctrl && key_event.character == 'l' {
-                    // Clear screen
-                    term.write("\x1b[2J\x1b[H");
-                    term.write("> ");
-                } else {
-                    // Echo character
-                    let ch = key_event.character;
+        while let Some(scancode) = ps2_keyboard::dequeue_scancode() {
+            if let Some(key) = decoder.process_scancode(scancode) {
+                let ch = key.character;
 
-                    if ch == '\n' {
-                        term.write("\n> ");
-                    } else if ch == '\x08' {
-                        // Backspace - erase character
-                        term.write("\x08");
-                    } else {
-                        // Regular character
-                        let mut buf = [0u8; 4];
-                        let s = ch.encode_utf8(&mut buf);
-                        term.write(s);
-                    }
+                if key.ctrl && ch == 'c' {
+                    term.write("\n^C\n> ");
+                } else if key.ctrl && ch == 'l' {
+                    term.clear();
+                    term.write("> ");
+                } else if ch == '\n' {
+                    term.write("\n> ");
+                } else if ch == '\x08' {
+                    term.write("\x08");
+                } else {
+                    let mut buf = [0u8; 4];
+                    term.write(ch.encode_utf8(&mut buf));
                 }
 
                 let mut guard = FRAMEBUFFER.lock();

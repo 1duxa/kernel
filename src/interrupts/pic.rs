@@ -12,8 +12,9 @@ pub static PICS: Mutex<ChainedPics> =
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum InterruptIndex {
-    Timer = PIC_1_OFFSET, // 32      
-    Keyboard = PIC_1_OFFSET + 1, // 33
+    Timer = PIC_1_OFFSET,        // 32 - IRQ0
+    Keyboard = PIC_1_OFFSET + 1, // 33 - IRQ1
+    Mouse = PIC_2_OFFSET + 4,     // 44 - IRQ12 (IRQ4 on PIC2)
     // COM2, COM1, LPT2, Floppy, LPT1, RTC, etc.
 }
 
