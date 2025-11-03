@@ -4,8 +4,8 @@ use crate::{
     framebuffer::{color::Color, framebuffer::FramebufferWriter},
     ui::Theme,
 };
-use embedded_graphics::mono_font::{ascii::FONT_10X20, MonoTextStyleBuilder};
 use core::fmt::{self, Write};
+use embedded_graphics::mono_font::{ascii::FONT_10X20, MonoTextStyleBuilder};
 
 // Character cell with styling
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -20,7 +20,7 @@ impl Cell {
         Self { ch, fg, bg }
     }
 }
-// TODO: Optimize, Make it as an app
+#[derive(Clone)]
 pub struct Terminal {
     // Screen buffer
     cells: Vec<Cell>,
@@ -28,21 +28,23 @@ pub struct Terminal {
     dirty_cells: Vec<bool>,
     width: usize,
     height: usize,
-    
+
     // Cursor
     cursor_x: usize,
     cursor_y: usize,
-    
+    prompt_start_x: usize,
+    last_cursor_x: usize,
+    last_cursor_y: usize,
     // Colors
     fg: Color,
     bg: Color,
     default_fg: Color,
     default_bg: Color,
-    
+
     // Font metrics (10x20 font)
     char_width: usize,
     char_height: usize,
-    
+
     // ANSI escape sequence parser
     escape_buffer: String,
     in_escape: bool,
@@ -53,13 +55,13 @@ impl Terminal {
         let cell_count = width * height;
         let mut cells = Vec::with_capacity(cell_count);
         let mut dirty_cells = Vec::with_capacity(cell_count);
-        
+
         let default_cell = Cell::new(' ', theme.text, theme.background);
         for _ in 0..cell_count {
             cells.push(default_cell);
             dirty_cells.push(true); // Initially all dirty
         }
-        
+
         Self {
             cells,
             dirty_cells,
@@ -67,7 +69,10 @@ impl Terminal {
             height,
             cursor_x: 0,
             cursor_y: 0,
+            prompt_start_x: 0,
             fg: theme.text,
+            last_cursor_x: 0,
+            last_cursor_y: 0,
             bg: theme.background,
             default_fg: theme.text,
             default_bg: theme.background,
@@ -77,11 +82,27 @@ impl Terminal {
             in_escape: false,
         }
     }
-    
+
+    pub fn set_prompt_start(&mut self) {
+        self.prompt_start_x = self.cursor_x;
+    }
+
+    pub fn draw_cursor(&self, fb: &mut FramebufferWriter, off_x: i32, off_y: i32) {
+        if self.cursor_x >= self.width || self.cursor_y >= self.height {
+            return;
+        }
+        let px = off_x + (self.cursor_x * self.char_width) as i32;
+        let py = off_y + (self.cursor_y * self.char_height) as i32;
+        let inset = 2i32;
+        let w = (self.char_width as i32 - inset * 2).max(1) as u32;
+        let h = (self.char_height as i32 - inset * 2).max(1) as u32;
+        fb.fill_rect(px + inset, py + inset, w, h, Color::from_hex(0xCCCCCC));
+    }
+
     pub fn size(&self) -> (usize, usize) {
         (self.width, self.height)
     }
-    
+
     fn cell_index(&self, x: usize, y: usize) -> Option<usize> {
         if x < self.width && y < self.height {
             Some(y * self.width + x)
@@ -89,28 +110,28 @@ impl Terminal {
             None
         }
     }
-    
+
     /// Mark a cell as dirty
     fn mark_dirty(&mut self, x: usize, y: usize) {
         if let Some(idx) = self.cell_index(x, y) {
             self.dirty_cells[idx] = true;
         }
     }
-    
+
     /// Mark entire screen as dirty
     fn mark_all_dirty(&mut self) {
         for dirty in &mut self.dirty_cells {
             *dirty = true;
         }
     }
-    
+
     /// Write text with ANSI escape sequence support
     pub fn write(&mut self, text: &str) {
         for ch in text.chars() {
             self.process_char(ch);
         }
     }
-    
+
     fn process_char(&mut self, ch: char) {
         if self.in_escape {
             self.escape_buffer.push(ch);
@@ -121,7 +142,7 @@ impl Terminal {
             }
             return;
         }
-        
+
         match ch {
             '\x1b' => {
                 self.in_escape = true;
@@ -138,7 +159,7 @@ impl Terminal {
             _ => {} // Ignore other control chars
         }
     }
-    
+
     fn is_escape_complete(&self) -> bool {
         if self.escape_buffer.is_empty() {
             return false;
@@ -146,23 +167,23 @@ impl Terminal {
         let last = self.escape_buffer.chars().last().unwrap();
         last.is_alphabetic() || last == 'm'
     }
-    
+
     fn process_escape(&mut self) {
         if !self.escape_buffer.starts_with('[') {
             return;
         }
-        
+
         let seq = &self.escape_buffer[1..];
         if seq.is_empty() {
             return;
         }
-        
+
         let last_char = seq.chars().last().unwrap();
         let params: Vec<usize> = seq[..seq.len() - 1]
             .split(';')
             .filter_map(|s| s.parse().ok())
             .collect();
-        
+
         match last_char {
             'H' | 'f' => {
                 // Cursor position
@@ -202,12 +223,12 @@ impl Terminal {
             _ => {}
         }
     }
-    
+
     fn put_char(&mut self, ch: char) {
         if self.cursor_x >= self.width {
             self.newline();
         }
-        
+
         if let Some(idx) = self.cell_index(self.cursor_x, self.cursor_y) {
             let new_cell = Cell::new(ch, self.fg, self.bg);
             if self.cells[idx] != new_cell {
@@ -215,22 +236,22 @@ impl Terminal {
                 self.dirty_cells[idx] = true;
             }
         }
-        
+
         self.cursor_x += 1;
     }
-    
+
     fn newline(&mut self) {
         self.cursor_x = 0;
         self.cursor_y += 1;
-        
+
         if self.cursor_y >= self.height {
             self.scroll_up();
             self.cursor_y = self.height - 1;
         }
     }
-    
+
     fn backspace(&mut self) {
-        if self.cursor_x > 0 {
+        if self.cursor_x > self.prompt_start_x {
             self.cursor_x -= 1;
             if let Some(idx) = self.cell_index(self.cursor_x, self.cursor_y) {
                 self.cells[idx] = Cell::new(' ', self.fg, self.bg);
@@ -249,14 +270,14 @@ impl Terminal {
                 self.dirty_cells[dst_idx] = true;
             }
         }
-        
+
         let last_row_start = (self.height - 1) * self.width;
         for i in 0..self.width {
             self.cells[last_row_start + i] = Cell::new(' ', self.fg, self.bg);
             self.dirty_cells[last_row_start + i] = true;
         }
     }
-    
+
     pub fn clear(&mut self) {
         for idx in 0..self.cells.len() {
             self.cells[idx] = Cell::new(' ', self.default_fg, self.default_bg);
@@ -265,39 +286,65 @@ impl Terminal {
         self.cursor_x = 0;
         self.cursor_y = 0;
     }
-    
-    /// Render to framebuffer (only dirty cells)
+
+    /// Render to framebuffer (only dirty cells) using tiled renderer APIs
     pub fn render(&mut self, fb: &mut FramebufferWriter) {
-        for y in 0..self.height {
-            for x in 0..self.width {
+        self.render_into_rect(
+            fb,
+            0,
+            0,
+            self.width * self.char_width,
+            self.height * self.char_height,
+        );
+    }
+
+    /// Render into a sub-rectangle with pixel offset (for widgets)
+    pub fn render_into_rect(
+        &mut self,
+        fb: &mut FramebufferWriter,
+        off_x: i32,
+        off_y: i32,
+        max_w: usize,
+        max_h: usize,
+    ) {
+        let max_cols = (max_w / self.char_width).min(self.width);
+        let max_rows = (max_h / self.char_height).min(self.height);
+        if self.last_cursor_x < self.width && self.last_cursor_y < self.height {
+            if let Some(idxp) = self.cell_index(self.last_cursor_x, self.last_cursor_y) {
+                self.dirty_cells[idxp] = true;
+            }
+        }
+        for y in 0..max_rows {
+            for x in 0..max_cols {
                 let idx = y * self.width + x;
-                
                 if !self.dirty_cells[idx] {
                     continue;
                 }
-                
                 let cell = &self.cells[idx];
-                let px = (x * self.char_width) as i32;
-                let py = (y * self.char_height) as i32;
-                
-                fb.fill_rect(px, py, self.char_width as u32, self.char_height as u32, cell.bg);
-                
-                // Draw character if not space
+                let px = off_x + (x * self.char_width) as i32;
+                let py = off_y + (y * self.char_height) as i32;
+                fb.fill_rect(
+                    px,
+                    py,
+                    self.char_width as u32,
+                    self.char_height as u32,
+                    cell.bg,
+                );
                 if cell.ch != ' ' {
                     let style = MonoTextStyleBuilder::new()
                         .font(&FONT_10X20)
                         .text_color(cell.fg.to_rgb888())
                         .build();
-                    
-                    // Text baseline for embedded-graphics fonts
                     fb.draw_char(cell.ch, px, py + 16, &style);
                 }
-                
                 self.dirty_cells[idx] = false;
             }
         }
+        self.last_cursor_x = self.cursor_x;
+        self.last_cursor_y = self.cursor_y;
+
+        // Cursor is drawn by draw_cursor after content
     }
-    
 }
 
 impl Write for Terminal {
@@ -310,14 +357,62 @@ impl Write for Terminal {
 // ANSI color conversion
 fn ansi_color(code: usize, bright: bool) -> Color {
     match code {
-        0 => if bright { Color::from_hex(0x808080) } else { Color::BLACK },
-        1 => if bright { Color::from_hex(0xFF5555) } else { Color::from_hex(0xAA0000) },
-        2 => if bright { Color::from_hex(0x55FF55) } else { Color::from_hex(0x00AA00) },
-        3 => if bright { Color::from_hex(0xFFFF55) } else { Color::from_hex(0xAA5500) },
-        4 => if bright { Color::from_hex(0x5555FF) } else { Color::from_hex(0x0000AA) },
-        5 => if bright { Color::from_hex(0xFF55FF) } else { Color::from_hex(0xAA00AA) },
-        6 => if bright { Color::from_hex(0x55FFFF) } else { Color::from_hex(0x00AAAA) },
-        7 => if bright { Color::WHITE } else { Color::from_hex(0xAAAAAA) },
+        0 => {
+            if bright {
+                Color::from_hex(0x808080)
+            } else {
+                Color::BLACK
+            }
+        }
+        1 => {
+            if bright {
+                Color::from_hex(0xFF5555)
+            } else {
+                Color::from_hex(0xAA0000)
+            }
+        }
+        2 => {
+            if bright {
+                Color::from_hex(0x55FF55)
+            } else {
+                Color::from_hex(0x00AA00)
+            }
+        }
+        3 => {
+            if bright {
+                Color::from_hex(0xFFFF55)
+            } else {
+                Color::from_hex(0xAA5500)
+            }
+        }
+        4 => {
+            if bright {
+                Color::from_hex(0x5555FF)
+            } else {
+                Color::from_hex(0x0000AA)
+            }
+        }
+        5 => {
+            if bright {
+                Color::from_hex(0xFF55FF)
+            } else {
+                Color::from_hex(0xAA00AA)
+            }
+        }
+        6 => {
+            if bright {
+                Color::from_hex(0x55FFFF)
+            } else {
+                Color::from_hex(0x00AAAA)
+            }
+        }
+        7 => {
+            if bright {
+                Color::WHITE
+            } else {
+                Color::from_hex(0xAAAAAA)
+            }
+        }
         _ => Color::WHITE,
     }
 }

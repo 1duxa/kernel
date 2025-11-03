@@ -3,8 +3,8 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 const BUFFER_SIZE: usize = 256;
 
 static mut RING_BUF: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
-static HEAD: AtomicUsize = AtomicUsize::new(0); 
-static TAIL: AtomicUsize = AtomicUsize::new(0); 
+static HEAD: AtomicUsize = AtomicUsize::new(0);
+static TAIL: AtomicUsize = AtomicUsize::new(0);
 
 pub fn enqueue_scancode(scancode: u8) {
     let head = HEAD.load(Ordering::Relaxed);
@@ -15,7 +15,7 @@ pub fn enqueue_scancode(scancode: u8) {
             RING_BUF[head] = scancode;
         }
         HEAD.store(next, Ordering::Release);
-    } 
+    }
 }
 
 pub fn dequeue_scancode() -> Option<u8> {
@@ -30,6 +30,7 @@ pub fn dequeue_scancode() -> Option<u8> {
         Some(sc)
     }
 }
+
 pub struct ScancodeDecoder {
     is_extended: bool,
     shift_pressed: bool,
@@ -48,6 +49,7 @@ impl ScancodeDecoder {
     }
 
     pub fn process_scancode(&mut self, scancode: u8) -> Option<KeyEvent> {
+        // If the scancode is the extended prefix, set flag and wait for next byte.
         if scancode == 0xE0 {
             self.is_extended = true;
             return None;
@@ -56,7 +58,66 @@ impl ScancodeDecoder {
         let is_release = scancode & 0x80 != 0;
         let key_code = scancode & 0x7F;
 
-        // Handle modifier keys
+        // If we've seen the extended prefix, handle extended keys (arrows, etc.)
+        if self.is_extended {
+            // consume the extended prefix state regardless of what follows
+            self.is_extended = false;
+
+            // ignore release events for arrows (optional: you could track key up if you want)
+            if is_release {
+                return None;
+            }
+
+            match key_code {
+                0x48 => {
+                    return Some(KeyEvent {
+                        character: '\0',
+                        ctrl: self.ctrl_pressed,
+                        alt: self.alt_pressed,
+                        shift: self.shift_pressed,
+                        is_arrow: true,
+                        arrow_direction: Some(crate::app::Arrow::Up),
+                    });
+                }
+                0x50 => {
+                    return Some(KeyEvent {
+                        character: '\0',
+                        ctrl: self.ctrl_pressed,
+                        alt: self.alt_pressed,
+                        shift: self.shift_pressed,
+                        is_arrow: true,
+                        arrow_direction: Some(crate::app::Arrow::Down),
+                    });
+                }
+                0x4B => {
+                    return Some(KeyEvent {
+                        character: '\0',
+                        ctrl: self.ctrl_pressed,
+                        alt: self.alt_pressed,
+                        shift: self.shift_pressed,
+                        is_arrow: true,
+                        arrow_direction: Some(crate::app::Arrow::Left),
+                    });
+                }
+                0x4D => {
+                    return Some(KeyEvent {
+                        character: '\0',
+                        ctrl: self.ctrl_pressed,
+                        alt: self.alt_pressed,
+                        shift: self.shift_pressed,
+                        is_arrow: true,
+                        arrow_direction: Some(crate::app::Arrow::Right),
+                    });
+                }
+                // you can add more extended keys here (home/end/insert/etc.)
+                _ => {
+                    // unknown extended — ignore
+                    return None;
+                }
+            }
+        }
+
+        // Handle common modifier keys (non-extended)
         match key_code {
             0x2A | 0x36 => {
                 // Left/Right Shift
@@ -76,23 +137,26 @@ impl ScancodeDecoder {
             _ => {}
         }
 
+        // For regular keys: if this is a key release, ignore it
         if is_release {
-            self.is_extended = false;
             return None;
         }
 
         let ch = self.scancode_to_char(key_code);
-        self.is_extended = false;
 
+        // return normal character events (not arrows)
         ch.map(|c| KeyEvent {
             character: c,
             ctrl: self.ctrl_pressed,
             alt: self.alt_pressed,
             shift: self.shift_pressed,
+            is_arrow: false,
+            arrow_direction: None,
         })
     }
 
     fn scancode_to_char(&self, scancode: u8) -> Option<char> {
+        // (keep your existing mapping - unchanged)
         let ch = match scancode {
             0x02..=0x0B => {
                 // Number row: 1-9, 0
@@ -133,12 +197,12 @@ impl ScancodeDecoder {
             0x30 => if self.shift_pressed { 'B' } else { 'b' },
             0x31 => if self.shift_pressed { 'N' } else { 'n' },
             0x32 => if self.shift_pressed { 'M' } else { 'm' },
-            
+
             0x39 => ' ',  // Space
             0x1C => '\n', // Enter
             0x0E => '\x08', // Backspace
             0x0F => '\t', // Tab
-            
+
             0x1A => if self.shift_pressed { '{' } else { '[' },
             0x1B => if self.shift_pressed { '}' } else { ']' },
             0x27 => if self.shift_pressed { ':' } else { ';' },
@@ -150,7 +214,7 @@ impl ScancodeDecoder {
             0x35 => if self.shift_pressed { '?' } else { '/' },
             0x0C => if self.shift_pressed { '_' } else { '-' },
             0x0D => if self.shift_pressed { '+' } else { '=' },
-            
+
             _ => return None,
         };
 
@@ -164,4 +228,7 @@ pub struct KeyEvent {
     pub ctrl: bool,
     pub alt: bool,
     pub shift: bool,
+    pub is_arrow: bool,
+    /// Arrow direction (Some) if `is_arrow == true`, otherwise None
+    pub arrow_direction: Option<crate::app::Arrow>,
 }

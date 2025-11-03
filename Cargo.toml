@@ -12,6 +12,7 @@ x86_64 = "0.15.2"
 pic8259 = "0.11.0"
 embedded-graphics = { version = "0.8.1" }
 embedded-graphics-core = { version = "0.4.0" }
+libm = "0.2.15"
 [profile.release]
 panic = "abort"
 

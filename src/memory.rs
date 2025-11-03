@@ -5,7 +5,7 @@ use spin::Mutex;
 use crate::allocators::simple::FixedSizeBlockAllocator;
 
 // Static heap buffer embedded in the kernel binary
-const HEAP_SIZE: usize = 2 * 1024 * 1024; // 2 MB
+const HEAP_SIZE: usize = 256 * 1024 * 1024; // 2 MB
 #[repr(align(4096))]
 struct HeapBuffer([u8; HEAP_SIZE]);
 static mut HEAP_BUFFER: HeapBuffer = HeapBuffer([0; HEAP_SIZE]);

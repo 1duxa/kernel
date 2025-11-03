@@ -1,360 +1,113 @@
-use crate::data_structures::vec::{String, ToString};
-use crate::format_no_std;
-use crate::framebuffer::framebuffer::{Color, FramebufferWriter, Point, Rect};
+// Minimal widget system compatible with current FramebufferWriter API
+use crate::data_structures::vec::{String, Vec};
+use crate::framebuffer::color::Color;
+use crate::framebuffer::framebuffer::FramebufferWriter;
 use crate::ui::theme::Theme;
+use embedded_graphics::{mono_font::MonoTextStyle, pixelcolor::Rgb888, prelude::*, text::Text};
 
-/// Draw a card/panel with shadow and rounded corners (modern UI style)
-pub fn draw_card(fb: &mut FramebufferWriter, rect: Rect, theme: &Theme, has_shadow: bool) {
-    if has_shadow {
-        fb.draw_shadow(rect, 4, 2, 2, Color::BLACK);
+// Integer square root for no_std environments
+fn isqrt(n: i32) -> i32 {
+    if n < 0 { return 0; }
+    if n == 0 { return 0; }
+    let mut x = n;
+    let mut y = (x + 1) / 2;
+    while y < x {
+        x = y;
+        y = (x + n / x) / 2;
     }
-    
-    let radius = 8.min(rect.width / 10).min(rect.height / 10);
-    fb.fill_rounded_rect(rect, radius, theme.surface);
-    fb.draw_rounded_rect(rect, radius, theme.text_secondary.darken(0.5));
+    x
 }
 
-/// Simple UI Widget system
-#[derive(Debug, Clone)]
-pub struct Widget {
-    pub rect: Rect,
-    pub background: Color,
-    pub border_color: Option<Color>,
-    pub text: String,
-    pub text_color: Color,
-    pub visible: bool,
-    pub widget_type: WidgetType,
-    pub hovered: bool,
-    pub theme: Option<Theme>,
-    pub radius: usize,
-    pub has_shadow: bool,
+// Helper: fill rounded rectangle with simple quarter-circle corners
+fn fill_round_rect(fb: &mut FramebufferWriter, rect: Rect, radius: usize, color: Color) {
+    let r = radius as i32;
+    let x0 = rect.x;
+    let y0 = rect.y;
+    let x1 = rect.x + rect.w as i32;
+    let y1 = rect.y + rect.h as i32;
+
+    // Fill center rectangle
+    let inner_x = x0 + r;
+    let inner_w = rect.w.saturating_sub((radius * 2).min(rect.w));
+    if inner_w > 0 { fb.fill_rect(inner_x, y0, inner_w as u32, rect.h as u32, color); }
+
+    // Fill left and right vertical bands with rounded corners
+    for dy in 0..radius.min(rect.h) {
+        let yy_top = y0 + dy as i32;
+        let yy_bot = y1 - 1 - dy as i32;
+        // Midpoint circle algorithm: compute x offset for this y offset
+        let dx_sq = r * r - (dy as i32 * dy as i32);
+        let dx = if dx_sq > 0 { isqrt(dx_sq) } else { 0 };
+        
+        let left_x = (x0 + r - dx).max(x0);
+        let right_x = (x1 - r + dx).min(x1);
+        
+        // Top-left and top-right corners
+        if left_x < x0 + r { fb.fill_rect(left_x, yy_top, (x0 + r - left_x) as u32, 1, color); }
+        if right_x > x1 - r { fb.fill_rect(x1 - r, yy_top, (right_x - (x1 - r)) as u32, 1, color); }
+        
+        // Bottom-left and bottom-right corners (if rect is tall enough)
+        if rect.h > radius {
+            if left_x < x0 + r { fb.fill_rect(left_x, yy_bot, (x0 + r - left_x) as u32, 1, color); }
+            if right_x > x1 - r { fb.fill_rect(x1 - r, yy_bot, (right_x - (x1 - r)) as u32, 1, color); }
+        }
+    }
 }
 
-#[derive(Debug, Clone)]
-pub enum WidgetType {
-    Label,
-    Button { 
-        pressed: bool,
-        hover_brightness: f32,  // How much to brighten on hover (0.0-1.0)
-    },
-    TextBox { 
-        focused: bool, 
-        cursor_pos: usize,
-        placeholder: String,
-    },
-    Panel { 
-        border_width: usize,
-    },
-    ProgressBar { 
-        value: f32, 
-        max: f32,
-        show_percentage: bool,
-        bar_color: Option<Color>,
-    },
-    Card {
-        elevation: usize,  // Shadow elevation
-    },
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Rect { pub x: i32, pub y: i32, pub w: usize, pub h: usize }
+impl Rect { pub fn new(x: i32, y: i32, w: usize, h: usize) -> Self { Self { x, y, w, h } } }
+
+pub trait Widget {
+    fn layout(&mut self, bounds: Rect) -> Rect;
+    fn render(&mut self, fb: &mut FramebufferWriter, theme: &Theme);
 }
 
-impl Widget {
-    pub fn new_label(rect: Rect, text: &str, color: Color) -> Self {
-        Self {
-            rect,
-            background: Color::BLACK,
-            border_color: None,
-            text: text.to_string(),
-            text_color: color,
-            visible: true,
-            widget_type: WidgetType::Label,
-            hovered: false,
-            theme: None,
-            radius: 0,
-            has_shadow: false,
+pub struct Panel { pub rect: Rect, pub bg: Color, pub radius: Option<usize> }
+impl Panel { pub fn new(bg: Color) -> Self { Self { rect: Rect::default(), bg, radius: None } } }
+impl Widget for Panel {
+    fn layout(&mut self, bounds: Rect) -> Rect { self.rect = bounds; self.rect }
+    fn render(&mut self, fb: &mut FramebufferWriter, _theme: &Theme) {
+        if let Some(r) = self.radius { fill_round_rect(fb, self.rect, r, self.bg); }
+        else { fb.fill_rect(self.rect.x, self.rect.y, self.rect.w as u32, self.rect.h as u32, self.bg); }
+    }
+}
+
+pub struct Label { pub rect: Rect, pub text: String, pub color: Color }
+impl Label { pub fn new(text: String, color: Color) -> Self { Self { rect: Rect::default(), text, color } } }
+impl Widget for Label {
+    fn layout(&mut self, bounds: Rect) -> Rect { self.rect = bounds; self.rect }
+    fn render(&mut self, fb: &mut FramebufferWriter, _theme: &Theme) {
+        // Draw text over whatever background is already in the node buffer
+        let style = MonoTextStyle::new(&embedded_graphics::mono_font::ascii::FONT_10X20, Rgb888::new(self.color.r, self.color.g, self.color.b));
+        Text::new(&self.text, Point::new(self.rect.x + 8, self.rect.y + 16), style).draw(fb).ok();
+    }
+}
+
+pub struct VStack<'a> { pub children: Vec<VStackItem<'a>> }
+pub struct VStackItem<'a> { pub child: &'a mut dyn Widget, pub height: Option<usize> }
+impl<'a> VStack<'a> { pub fn new() -> Self { Self { children: Vec::new() } } pub fn push(&mut self, child: &'a mut dyn Widget, height: Option<usize>) { self.children.push(VStackItem { child, height }); } }
+impl<'a> Widget for VStack<'a> {
+    fn layout(&mut self, bounds: Rect) -> Rect {
+        let mut y = bounds.y; let mut remaining = bounds.h; let last = self.children.len().saturating_sub(1);
+        for (i, it) in self.children.iter_mut().enumerate() {
+            let h = if i == last { remaining } else { it.height.unwrap_or(0).min(remaining) };
+            let r = Rect::new(bounds.x, y, bounds.w, h);
+            it.child.layout(r); y += h as i32; remaining = remaining.saturating_sub(h);
         }
+        bounds
     }
+    fn render(&mut self, fb: &mut FramebufferWriter, theme: &Theme) { for it in self.children.iter_mut() { it.child.render(fb, theme); } }
+}
 
-    pub fn new_button(rect: Rect, text: &str, theme: Option<Theme>) -> Self {
-        let bg = theme.as_ref().map(|t| t.primary).unwrap_or(Color::DARK_GRAY);
-        Self {
-            rect,
-            background: bg,
-            border_color: None,
-            text: text.to_string(),
-            text_color: theme.as_ref().map(|t| t.text).unwrap_or(Color::WHITE),
-            visible: true,
-            widget_type: WidgetType::Button { 
-                pressed: false,
-                hover_brightness: 0.2,
-            },
-            hovered: false,
-            theme,
-            radius: 6,
-            has_shadow: true,
-        }
-    }
-
-    pub fn new_button_modern(rect: Rect, text: &str, theme: &Theme) -> Self {
-        Self::new_button(rect, text, Some(*theme))
-    }
-
-    pub fn new_progress_bar(rect: Rect, value: f32, max: f32, theme: Option<Theme>) -> Self {
-        Self {
-            rect,
-            background: theme.as_ref().map(|t| t.surface.darken(0.3)).unwrap_or(Color::DARK_GRAY),
-            border_color: None,
-            text: String::new(),
-            text_color: theme.as_ref().map(|t| t.text).unwrap_or(Color::WHITE),
-            visible: true,
-            widget_type: WidgetType::ProgressBar { 
-                value, 
-                max,
-                show_percentage: true,
-                bar_color: theme.as_ref().map(|t| t.primary),
-            },
-            hovered: false,
-            theme,
-            radius: 4,
-            has_shadow: false,
-        }
-    }
-
-    pub fn new_card(rect: Rect, theme: &Theme, elevation: usize) -> Self {
-        Self {
-            rect,
-            background: theme.surface,
-            border_color: None,
-            text: String::new(),
-            text_color: theme.text,
-            visible: true,
-            widget_type: WidgetType::Card { elevation },
-            hovered: false,
-            theme: Some(*theme),
-            radius: 8,
-            has_shadow: true,
-        }
-    }
-
-    pub fn new_text_box(rect: Rect, placeholder: &str, theme: Option<Theme>) -> Self {
-        Self {
-            rect,
-            background: theme.as_ref().map(|t| t.surface).unwrap_or(Color::BLACK),
-            border_color: theme.as_ref().map(|t| Some(t.text_secondary)).unwrap_or(Some(Color::LIGHT_GRAY)),
-            text: String::new(),
-            text_color: theme.as_ref().map(|t| t.text).unwrap_or(Color::WHITE),
-            visible: true,
-            widget_type: WidgetType::TextBox {
-                focused: false,
-                cursor_pos: 0,
-                placeholder: placeholder.to_string(),
-            },
-            hovered: false,
-            theme,
-            radius: 4,
-            has_shadow: false,
-        }
-    }
-
-    pub fn render(&self, fb: &mut FramebufferWriter) {
-        if !self.visible {
-            return;
-        }
-
-        match &self.widget_type {
-            WidgetType::Label => {
-                // Draw background then text at top-left of widget rect
-                if self.radius > 0 {
-                    fb.fill_rounded_rect(self.rect, self.radius, self.background);
-                } else {
-                    fb.fill_rect(self.rect, self.background);
-                }
-                let text_col = self.rect.x / fb.cell_w;
-                let text_row = self.rect.y / fb.cell_h;
-                let old_fg = fb.fg_color;
-                fb.set_fg_color(self.text_color);
-                fb.write_at(&self.text, text_col, text_row);
-                fb.set_fg_color(old_fg);
-            }
-            WidgetType::Button { pressed, hover_brightness } => {
-                let bg_color = if *pressed {
-                    self.background.darken(0.3)
-                } else if self.hovered {
-                    self.background.lighten(*hover_brightness)
-                } else {
-                    self.background
-                };
-
-                // Draw shadow if enabled
-                if self.has_shadow && !*pressed {
-                    fb.draw_shadow(self.rect, 2, 1, 1, Color::BLACK);
-                }
-
-                // Draw button with rounded corners
-                if self.radius > 0 {
-                    fb.fill_rounded_rect(self.rect, self.radius, bg_color);
-                    if let Some(border) = self.border_color {
-                        fb.draw_rounded_rect(self.rect, self.radius, border);
-                    }
-                } else {
-                    fb.fill_rect(self.rect, bg_color);
-                    if let Some(border) = self.border_color {
-                        fb.draw_rect(self.rect, border);
-                    }
-                }
-
-                // Center text in button (character coords)
-                let text_w_px = self.text.len() * fb.cell_w;
-                let text_h_px = fb.cell_h;
-                let text_x_px = self.rect.x + (self.rect.width.saturating_sub(text_w_px) / 2);
-                let text_y_px = self.rect.y + (self.rect.height.saturating_sub(text_h_px) / 2);
-                let old_fg = fb.fg_color;
-                fb.set_fg_color(self.text_color);
-                fb.write_at(
-                    &self.text,
-                    text_x_px / fb.cell_w,
-                    text_y_px / fb.cell_h,
-                );
-                fb.set_fg_color(old_fg);
-            }
-            WidgetType::ProgressBar { value, max, show_percentage, bar_color } => {
-                // Background with rounded corners
-                if self.radius > 0 {
-                    fb.fill_rounded_rect(self.rect, self.radius, self.background);
-                } else {
-                    fb.fill_rect(self.rect, self.background);
-                }
-
-                // Progress fill
-                let progress = (*value / *max).min(1.0).max(0.0);
-                let fill_width = (self.rect.width as f32 * progress) as usize;
-                if fill_width > 0 {
-                    let fill_rect = Rect::new(self.rect.x, self.rect.y, fill_width, self.rect.height);
-                    let bar_col = bar_color.unwrap_or(Color::from_hex(0x4CAF50));
-                    if self.radius > 0 {
-                        fb.fill_rounded_rect(fill_rect, self.radius.min(fill_width / 2), bar_col);
-                    } else {
-                        fb.fill_rect(fill_rect, bar_col);
-                    }
-                }
-
-                // Border
-                if let Some(border) = self.border_color {
-                    if self.radius > 0 {
-                        fb.draw_rounded_rect(self.rect, self.radius, border);
-                    } else {
-                        fb.draw_rect(self.rect, border);
-                    }
-                }
-
-                // Progress text centered if enabled
-                if *show_percentage {
-                    let mut buf = [0u8; 16];
-                    let progress_text = format_no_std!(&mut buf, "{:.0}%", progress * 100.0).unwrap_or_default();
-                    let text_w_px = progress_text.len() * fb.cell_w;
-                    let text_h_px = fb.cell_h;
-                    let text_x_px = self.rect.x + (self.rect.width.saturating_sub(text_w_px) / 2);
-                    let text_y_px = self.rect.y + (self.rect.height.saturating_sub(text_h_px) / 2);
-                    let old_fg = fb.fg_color;
-                    fb.set_fg_color(self.text_color);
-                    fb.write_at(
-                        &progress_text,
-                        text_x_px / fb.cell_w,
-                        text_y_px / fb.cell_h,
-                    );
-                    fb.set_fg_color(old_fg);
-                }
-            }
-            WidgetType::TextBox { focused, cursor_pos: _, placeholder } => {
-                // Draw background and border, then text starting at inner padding
-                if self.radius > 0 {
-                    fb.fill_rounded_rect(self.rect, self.radius, self.background);
-                } else {
-                    fb.fill_rect(self.rect, self.background);
-                }
-                
-                let border_col = if *focused {
-                    self.theme.as_ref().map(|t| t.primary).unwrap_or(Color::from_hex(0x2196F3))
-                } else {
-                    self.border_color.unwrap_or(Color::GRAY)
-                };
-                
-                if self.radius > 0 {
-                    fb.draw_rounded_rect(self.rect, self.radius, border_col);
-                } else {
-                    fb.draw_rect(self.rect, border_col);
-                }
-                
-                let text_col = (self.rect.x + 2) / fb.cell_w;
-                let text_row = (self.rect.y + 2) / fb.cell_h;
-                let old_fg = fb.fg_color;
-                
-                if self.text.is_empty() && !placeholder.is_empty() {
-                    fb.set_fg_color(self.text_color.darken(0.5));
-                    fb.write_at(placeholder, text_col, text_row);
-                } else {
-                    fb.set_fg_color(self.text_color);
-                    fb.write_at(&self.text, text_col, text_row);
-                }
-                fb.set_fg_color(old_fg);
-            }
-            WidgetType::Panel { border_width } => {
-                if self.has_shadow {
-                    fb.draw_shadow(self.rect, 4, 2, 2, Color::BLACK);
-                }
-                
-                if self.radius > 0 {
-                    fb.fill_rounded_rect(self.rect, self.radius, self.background);
-                } else {
-                    fb.fill_rect(self.rect, self.background);
-                }
-                
-                if let Some(border) = self.border_color {
-                    if *border_width > 1 {
-                        // Draw multiple border lines for thicker border
-                        for i in 0..*border_width {
-                            let inset = i;
-                            let border_rect = Rect::new(
-                                self.rect.x + inset,
-                                self.rect.y + inset,
-                                self.rect.width.saturating_sub(inset * 2),
-                                self.rect.height.saturating_sub(inset * 2),
-                            );
-                            if self.radius > inset {
-                                fb.draw_rounded_rect(border_rect, self.radius - inset, border);
-                            } else {
-                                fb.draw_rect(border_rect, border);
-                            }
-                        }
-                    } else {
-                        if self.radius > 0 {
-                            fb.draw_rounded_rect(self.rect, self.radius, border);
-                        } else {
-                            fb.draw_rect(self.rect, border);
-                        }
-                    }
-                }
-            }
-            WidgetType::Card { elevation } => {
-                if let Some(theme) = &self.theme {
-                    draw_card(fb, self.rect, theme, self.has_shadow && *elevation > 0);
-                } else {
-                    if self.radius > 0 {
-                        fb.fill_rounded_rect(self.rect, self.radius, self.background);
-                    } else {
-                        fb.fill_rect(self.rect, self.background);
-                    }
-                }
-            }
-        }
-    }
-
-    /// Check if a point is inside the widget
-    pub fn contains(&self, point: Point) -> bool {
-        self.rect.contains(point)
-    }
-
-    /// Set hover state
-    pub fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
+use crate::terminal::Terminal;
+pub struct TerminalWidget<'a> { pub rect: Rect, pub term: &'a mut Terminal }
+impl<'a> TerminalWidget<'a> { pub fn new(term: &'a mut Terminal) -> Self { Self { rect: Rect::default(), term } } }
+impl<'a> Widget for TerminalWidget<'a> {
+    fn layout(&mut self, bounds: Rect) -> Rect { self.rect = bounds; self.rect }
+    fn render(&mut self, fb: &mut FramebufferWriter, _theme: &Theme) {
+        self.term.render_into_rect(fb, self.rect.x, self.rect.y, self.rect.w, self.rect.h);
+        // Note: cursor is drawn as overlay in main loop after render_frame to avoid artifacts
     }
 }
 
