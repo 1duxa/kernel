@@ -22,7 +22,7 @@ static TSS: Lazy<TaskStateSegment> = Lazy::new(|| {
 
 struct Selectors {
     code_selector: SegmentSelector,
-    data_selector: SegmentSelector,  // ADD THIS
+    data_selector: SegmentSelector,
     tss_selector: SegmentSelector,
 }
 
@@ -30,14 +30,14 @@ static GDT: Lazy<(GlobalDescriptorTable, Selectors)> = Lazy::new(|| {
     let mut gdt = GlobalDescriptorTable::new();
     
     let code_selector = gdt.append(Descriptor::kernel_code_segment());
-    let data_selector = gdt.append(Descriptor::kernel_data_segment());  // ADD THIS
+    let data_selector = gdt.append(Descriptor::kernel_data_segment());
     let tss_selector = gdt.append(Descriptor::tss_segment(&TSS));
     
     (
         gdt,
         Selectors {
             code_selector,
-            data_selector,  // ADD THIS
+            data_selector,
             tss_selector,
         },
     )
