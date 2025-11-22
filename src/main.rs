@@ -11,7 +11,7 @@ use core::panic::PanicInfo;
 use spin::Mutex;
 use uart_16550::SerialPort;
 
-use crate::app::{AppEvent, AppHost, Arrow};
+use crate::app::{AppEvent, AppHost};
 use crate::apps::terminal_app::TerminalApp;
 use crate::{
     drivers::ps2_keyboard,
@@ -32,6 +32,7 @@ mod kernel;
 mod memory;
 mod terminal;
 mod ui;
+mod syscalls;
 entry_point!(kernel_main);
 
 pub static SERIAL: Mutex<SerialPort> = Mutex::new(unsafe { SerialPort::new(0x3F8) });
@@ -74,44 +75,7 @@ pub fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     let mut host = AppHost::new();
     let term = Terminal::new(cols, rows, &theme);
     let app = TerminalApp::new(term.clone());
-    host.register_app(Box::new(app));
-    {
-        use crate::data_structures::vec::String as KString;
-        use crate::ui::widgets::{Label, Panel, Rect, VStack, Widget};
-        let mut guard = FRAMEBUFFER.lock();
-        let fb = guard.as_mut().unwrap();
-        let screen = Rect::new(0, 0, fb.width, fb.height/2);
 
-        fb.clear(theme.background);
-
-        let header_h = 24usize;
-        let mut header = Panel {
-            rect: Rect::new(0, 0, 0, 0),
-            bg: theme.primary,
-            radius: Some(8),
-        };
-        let mut title = Label::new(KString::from("Welcome to RustOS"), theme.text);
-        let mut root = VStack::new();
-        root.push(&mut header, Some(header_h));
-        root.push(&mut title, Some(header_h));
-        root.layout(screen);
-        root.render(fb, &theme);
-        // Layout terminal app
-        host.layout_app(
-            0,
-            Rect::new(
-                0,
-                (header_h * 2) as i32,
-                fb.width,
-                fb.height - (header_h * 2),
-            ),
-        );
-        host.app_mut(0).init();
-        host.render_app_once(0, fb, &theme);
-        fb.render_frame();
-        host.app_mut(0).overlay(fb, &theme);
-    }
-    let app = TerminalApp::new(term.clone());
     host.register_app(Box::new(app));
     {
         use crate::data_structures::vec::String as KString;
