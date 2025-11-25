@@ -1,4 +1,4 @@
-use crate::framebuffer::color::Color;
+use crate::devices::framebuffer::color::Color;
 
 /// Modern UI Theme for the OS
 #[derive(Debug, Clone, Copy)]

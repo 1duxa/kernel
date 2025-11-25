@@ -1,7 +1,7 @@
 //! Terminal emulator with ANSI escape sequence support
 use crate::{
     data_structures::vec::{String, Vec},
-    framebuffer::{color::Color, framebuffer::FramebufferWriter},
+    devices::framebuffer::{color::Color, framebuffer::FramebufferWriter},
     ui::Theme,
 };
 use core::fmt::{self, Write};

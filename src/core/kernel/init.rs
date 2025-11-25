@@ -1,9 +1,8 @@
-// TODO: Trash code
 /// Kernel initialization phases
-use crate::kernel::status::{update_component_status, InitStatus};
+use crate::core::kernel::status::{update_component_status, InitStatus};
 use crate::println;
 
-use crate::kernel::status::register_component;
+use crate::core::kernel::status::register_component;
 
 /// Initialize kernel in proper order with error handling
 pub fn init_kernel() -> Result<(), &'static str> {
@@ -45,8 +44,15 @@ fn init_phase(name: &'static str, init_fn: fn() -> Result<(), &'static str>) -> 
 
 
 fn init_interrupts() -> Result<(), &'static str> {
-    crate::interrupts::init();
-    
+    crate::core::interrupts::init();
+    // Enable timer interrupts
+    unsafe {
+        use x86_64::instructions::port::Port;
+        let mut pic1_data = Port::<u8>::new(0x21);
+        let mask: u8 = pic1_data.read();
+        let new_mask = mask & !(1 << 0); // Enable IRQ0 (timer)
+        pic1_data.write(new_mask);
+    }
     // Enable keyboard interrupt (IRQ1)
     unsafe {
         use x86_64::instructions::port::Port;

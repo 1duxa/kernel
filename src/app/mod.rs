@@ -1,5 +1,5 @@
-use crate::framebuffer::color::Color;
-use crate::framebuffer::framebuffer::FramebufferWriter;
+use crate::devices::framebuffer::color::Color;
+use crate::devices::framebuffer::framebuffer::FramebufferWriter;
 use crate::ui::theme::Theme;
 use crate::ui::widgets::Rect;
 use alloc::boxed::Box;
@@ -20,6 +20,7 @@ pub enum AppEvent {
         ch: char,
         ctrl: bool,
         alt: bool,
+        shift: bool,
         arrow: Option<Arrow>,
     },
     Tick,
@@ -82,6 +83,7 @@ impl AppHost {
                 ch: _,
                 ctrl,
                 alt,
+                shift: _,
                 arrow: Some(dir),
             } if ctrl || alt => {
                 let blocks = self.apps[self.focus_app].focus_blocks().to_vec();

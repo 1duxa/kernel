@@ -1,5 +1,7 @@
 use crate::app::{App, AppEvent, FocusBlock};
-use crate::framebuffer::framebuffer::FramebufferWriter;
+use crate::cmd_executor::CommandExecutor;
+use crate::data_structures::vec::String;
+use crate::devices::framebuffer::framebuffer::FramebufferWriter;
 use crate::terminal::Terminal;
 use crate::ui::theme::Theme;
 use crate::ui::widgets::Rect;
@@ -8,6 +10,7 @@ pub struct TerminalApp {
     pub term: Terminal,
     block: FocusBlock,
     bounds: Rect,
+    current_line: String,
 }
 
 impl TerminalApp {
@@ -19,7 +22,37 @@ impl TerminalApp {
                 rect: Rect::new(0, 0, 0, 0),
             },
             bounds: Rect::new(0, 0, 0, 0),
+            current_line: String::new(),
         }
+    }
+}
+
+impl TerminalApp {
+    fn execute_command(&mut self) {
+        let input = self.current_line.clone();
+        self.current_line.clear();
+        
+        self.term.write("\n");
+        
+        use crate::cmd_executor::CommandResult;
+        match CommandExecutor::execute(&input) {
+            CommandResult::Output(output) => {
+                self.term.write(&output);
+                self.term.write("\n");
+            }
+            CommandResult::Error(error) => {
+                let mut err_display = String::from("Error: ");
+                err_display.push_str(&error);
+                self.term.write(&err_display);
+                self.term.write("\n");
+            }
+            CommandResult::Exit => {
+                self.term.write("Goodbye!\n");
+            }
+        }
+        
+        self.term.write("> ");
+        self.term.set_prompt_start();
     }
 }
 
@@ -33,6 +66,7 @@ impl App for TerminalApp {
             ch,
             ctrl,
             alt: _,
+            shift,
             arrow,
         } = event
         {
@@ -43,20 +77,30 @@ impl App for TerminalApp {
                 self.term.clear();
                 self.term.write("> ");
                 self.term.set_prompt_start();
+                self.current_line.clear();
                 return;
             }
             if ch == '\n' {
-                self.term.write("\n> ");
-                self.term.set_prompt_start();
+                if shift {
+                    self.execute_command();
+                    self.term.set_prompt_start();
+                } else {
+                    self.term.write("\n");
+                    self.current_line.push('\n');
+                }
                 return;
             }
             if ch == '\x08' {
                 self.term.write("\x08");
+                if !self.current_line.is_empty() {
+                    self.current_line.pop();
+                }
                 return;
             }
             if !ch.is_control() {
                 let mut buf = [0u8; 4];
                 self.term.write(ch.encode_utf8(&mut buf));
+                self.current_line.push(ch);
             }
         }
     }

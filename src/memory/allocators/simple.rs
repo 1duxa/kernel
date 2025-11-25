@@ -1,10 +1,9 @@
-// TODO: I dont use most of it
 use core::alloc::{GlobalAlloc, Layout};
 use core::cell::UnsafeCell;
 use core::ptr::{self, NonNull};
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::allocators::core::{align_up, align_down, AllocError, SpinLock, validate_region};
+use crate::memory::allocators::core::{align_up, align_down, AllocError, SpinLock, validate_region};
 
 // ============================================================================
 // 1. BUMP ALLOCATOR (Simple, fast, no deallocation)

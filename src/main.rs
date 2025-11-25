@@ -4,35 +4,32 @@
 
 extern crate alloc;
 extern crate rlibc;
-
 use alloc::boxed::Box;
 use bootloader_api::{entry_point, BootInfo};
-use core::panic::PanicInfo;
 use spin::Mutex;
 use uart_16550::SerialPort;
 
 use crate::app::{AppEvent, AppHost};
 use crate::apps::terminal_app::TerminalApp;
 use crate::{
-    drivers::ps2_keyboard,
-    framebuffer::framebuffer::{init_framebuffer, FRAMEBUFFER},
-    kernel::init_kernel,
+    devices::drivers::ps2_keyboard,
+    devices::framebuffer::framebuffer::{init_framebuffer, FRAMEBUFFER},
     terminal::Terminal,
     ui::Theme,
 };
-mod allocators;
 mod app;
 mod apps;
+mod syscalls;
 mod data_structures;
-mod drivers;
-mod framebuffer;
-mod input;
-mod interrupts;
-mod kernel;
 mod memory;
 mod terminal;
 mod ui;
-mod syscalls;
+mod devices;
+mod cmd_executor;
+mod asm_executor;
+pub mod core;
+pub mod test_env;
+
 entry_point!(kernel_main);
 
 pub static SERIAL: Mutex<SerialPort> = Mutex::new(unsafe { SerialPort::new(0x3F8) });
@@ -40,7 +37,7 @@ pub static SERIAL: Mutex<SerialPort> = Mutex::new(unsafe { SerialPort::new(0x3F8
 #[macro_export]
 macro_rules! println {
     ($($arg:tt)*) => {{
-        use core::fmt::Write;
+        use ::core::fmt::Write;
         let mut serial = $crate::SERIAL.lock();
         let _ = writeln!(serial, $($arg)*);
     }};
@@ -48,19 +45,14 @@ macro_rules! println {
 
 pub fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     unsafe {
-        if let Err(e) = memory::init_heap(&boot_info) {
+        if let Err(e) = memory::init(boot_info) {
             println!("Failed to init heap: {}\n", e);
             loop_arch_mm();
         }
     }
-
-    memory::memory_stats(&boot_info);
-
-    if init_kernel().is_err() {
-        println!("Kernel initialization failed!");
-        loop_arch_mm();
-    }
-
+    
+    let _  = core::kernel::init_kernel();
+    
     init_framebuffer(boot_info);
     let theme = Theme::dark_modern();
 
@@ -114,7 +106,6 @@ pub fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         host.app_mut(0).overlay(fb, &theme);
     }
     let mut decoder = ps2_keyboard::ScancodeDecoder::new();
-
     loop {
         while let Some(scancode) = ps2_keyboard::dequeue_scancode() {
             if let Some(key) = decoder.process_scancode(scancode) {
@@ -123,6 +114,7 @@ pub fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                             ch: if key.arrow_direction.is_some() { '\0' } else { key.character },
                             ctrl: key.ctrl,
                             alt: key.alt,
+                            shift: key.shift,
                             arrow: key.arrow_direction,
                         }
                 } else {
@@ -131,6 +123,7 @@ pub fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                         ch,
                         ctrl: key.ctrl,
                         alt: key.alt,
+                        shift: key.shift,
                         arrow: None,
                     }
                 };
@@ -141,7 +134,7 @@ pub fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         }
 
         unsafe {
-            core::arch::x86_64::_mm_pause();
+            ::core::arch::x86_64::_mm_pause();
         }
     }
 }
@@ -149,16 +142,13 @@ pub fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 fn loop_arch_mm() -> ! {
     loop {
         unsafe {
-            core::arch::x86_64::_mm_pause();
+            ::core::arch::x86_64::_mm_pause();
         }
     }
 }
 
 #[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
-    let msg = info.message();
-    let loc = info.location();
-    println!("PANIC : {} | {:?}", msg, loc);
-
+fn panic(_info: &::core::panic::PanicInfo) -> ! {
+    println!("{:#?}", _info);
     loop_arch_mm()
 }

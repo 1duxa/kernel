@@ -50,15 +50,12 @@ pub fn init() {
     unsafe {
         use x86_64::instructions::segmentation::{CS, DS, ES, SS, Segment};
         
-        // Set code segment
         CS::set_reg(selectors.code_selector);
         
-        // Set data segments - THIS WAS MISSING!
         DS::set_reg(selectors.data_selector);
         ES::set_reg(selectors.data_selector);
         SS::set_reg(selectors.data_selector);
         
-        // Load TSS
         x86_64::instructions::tables::load_tss(selectors.tss_selector);
     }
 }

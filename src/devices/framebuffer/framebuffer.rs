@@ -1,6 +1,7 @@
 //! Framebuffer writer using embedded-graphics + tiled renderer
 use bootloader_api::BootInfo;
-use crate::{vec, framebuffer::color::Color};
+use crate::data_structures::vec::Vec;
+use super::color::Color;
 use spin::Mutex;
 use embedded_graphics::{
     prelude::*,
@@ -10,7 +11,7 @@ use embedded_graphics::{
     Drawable,
 };
 use core::sync::atomic::{AtomicBool, Ordering};
-use crate::data_structures::vec::Vec;
+use alloc::vec;
 const TILE_W: usize = 32;
 const TILE_H: usize = 32;
 

@@ -1,7 +1,6 @@
-use crate::syscall::numbers::SyscallNumber;
-use crate::syscall::handlers;
-use x86_64::structures::idt::InterruptStackFrame;
-
+use crate::syscalls::numbers::SyscallNumber;
+use crate::syscalls::handlers;
+use crate::syscalls::handlers::memory::{sys_brk, sys_mmap, sys_munmap};
 /// System call result type
 pub type SyscallResult = Result<usize, SyscallError>;
 
@@ -114,19 +113,19 @@ pub fn dispatch_syscall(ctx: SyscallContext) -> SyscallResult {
         SyscallNumber::Wait => handlers::process::sys_wait(ctx.arg0 as *mut i32),
         
         // Memory Management
-        SyscallNumber::Mmap => handlers::memory::sys_mmap(
-            ctx.arg0,
-            ctx.arg1,
-            ctx.arg2,
-            ctx.arg3,
+        SyscallNumber::Mmap =>sys_mmap(
+            ctx.arg0 ,
+            ctx.arg1 ,
+            ctx.arg2 ,
+            ctx.arg3 ,
             ctx.arg4 as i32,
-            ctx.arg5,
+            ctx.arg5 ,
         ),
-        SyscallNumber::Munmap => handlers::memory::sys_munmap(ctx.arg0, ctx.arg1),
-        SyscallNumber::Brk => handlers::memory::sys_brk(ctx.arg0),
+        SyscallNumber::Munmap => sys_munmap(ctx.arg0, ctx.arg1),
+        SyscallNumber::Brk => sys_brk(ctx.arg0 as u64),
         
         // Time
-        SyscallNumber::Sleep => handlers::time::sys_sleep(ctx.arg0),
+        SyscallNumber::Sleep => handlers::time::sys_sleep(ctx.arg0 as u64),
         SyscallNumber::GetTime => handlers::time::sys_gettime(),
         
         // Not yet implemented

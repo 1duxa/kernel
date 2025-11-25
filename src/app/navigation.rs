@@ -1,6 +1,6 @@
 use super::{Arrow, FocusBlock};
-use crate::framebuffer::color::Color;
-use crate::framebuffer::framebuffer::FramebufferWriter;
+use crate::devices::framebuffer::color::Color;
+use crate::devices::framebuffer::framebuffer::FramebufferWriter;
 use crate::ui::widgets::Rect;
 
 pub fn move_focus(blocks: &[FocusBlock], current: u32, dir: Arrow) -> u32 {

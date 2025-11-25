@@ -1,14 +1,13 @@
-use crate::syscall::dispatcher::{SyscallResult, SyscallError};
-
+use crate::syscalls::dispatcher::{SyscallResult};
+use crate::core::interrupts::interrupts::TIMER_TICKS;
 /// Sleep for specified milliseconds
-pub fn sys_sleep(milliseconds: usize) -> SyscallResult {
-    // TODO: Implement sleep using timer interrupts
+pub fn sys_sleep(milliseconds: u64) -> SyscallResult {
     // For now, busy wait (not ideal!)
-    let target_ticks = crate::interrupts::TIMER_TICKS.load(core::sync::atomic::Ordering::Relaxed)
+    let target_ticks = TIMER_TICKS.load(core::sync::atomic::Ordering::Relaxed)
         + (milliseconds * 18 / 1000); // ~18.2 Hz timer
     
-    while crate::interrupts::TIMER_TICKS.load(core::sync::atomic::Ordering::Relaxed) < target_ticks {
-        unsafe { core::arch::x86_64::_mm_pause(); }
+    while TIMER_TICKS.load(core::sync::atomic::Ordering::Relaxed) < target_ticks {
+        core::hint::spin_loop();
     }
     
     Ok(0)
@@ -16,7 +15,7 @@ pub fn sys_sleep(milliseconds: usize) -> SyscallResult {
 
 /// Get current time in milliseconds since boot
 pub fn sys_gettime() -> SyscallResult {
-    let ticks = crate::interrupts::TIMER_TICKS.load(core::sync::atomic::Ordering::Relaxed);
+    let ticks = TIMER_TICKS.load(core::sync::atomic::Ordering::Relaxed);
     // Convert ticks to milliseconds (~18.2 Hz = ~55ms per tick)
     Ok((ticks * 55) as usize)
 }

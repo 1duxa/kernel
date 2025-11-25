@@ -1,7 +1,7 @@
 // Minimal widget system compatible with current FramebufferWriter API
 use crate::data_structures::vec::{String, Vec};
-use crate::framebuffer::color::Color;
-use crate::framebuffer::framebuffer::FramebufferWriter;
+use crate::devices::framebuffer::color::Color;
+use crate::devices::framebuffer::framebuffer::FramebufferWriter;
 use crate::ui::theme::Theme;
 use embedded_graphics::{mono_font::MonoTextStyle, pixelcolor::Rgb888, prelude::*, text::Text};
 

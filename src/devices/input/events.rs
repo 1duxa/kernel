@@ -1,5 +1,4 @@
-use crate::drivers::{KeyEvent, MouseEvent};
-// TODO: Useless
+use crate::devices::drivers::{KeyEvent, MouseEvent};
 /// Unified input event type
 #[derive(Debug, Clone, Copy)]
 pub enum InputEvent {

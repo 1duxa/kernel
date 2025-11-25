@@ -1,4 +1,4 @@
-use crate::syscall::dispatcher::{SyscallResult, SyscallError};
+use crate::syscalls::dispatcher::{SyscallResult, SyscallError};
 
 /// Read from file descriptor
 pub fn sys_read(fd: i32, buf: *mut u8, count: usize) -> SyscallResult {

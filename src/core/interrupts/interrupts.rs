@@ -1,9 +1,9 @@
-use core::sync::atomic::{AtomicU64};
+use core::sync::atomic::{AtomicU64, Ordering};
 
-use crate::{ interrupts::{gdt, pic::InterruptIndex}, println };
+use crate::{ core::interrupts::{gdt, pic::InterruptIndex}, println };
 use spin::Lazy;
 use x86_64::{instructions::port::Port, structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}};
-static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
+pub static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
 
 static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     let mut idt = InterruptDescriptorTable::new();
@@ -22,6 +22,7 @@ static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     idt[InterruptIndex::Timer.as_u8()].set_handler_fn(timer_interrupt_handler);
     idt[InterruptIndex::Keyboard.as_u8()].set_handler_fn(keyboard_interrupt_handler);
     idt[InterruptIndex::Mouse.as_u8()].set_handler_fn(mouse_interrupt_handler);
+    idt[InterruptIndex::Syscall.as_u8()].set_handler_fn(syscall_handler);
 
     idt
 });
@@ -62,6 +63,8 @@ extern "x86-interrupt" fn page_fault_handler(stack_frame: InterruptStackFrame, e
 }
 
 extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
+    TIMER_TICKS.fetch_add(1, Ordering::Relaxed);
+
     unsafe {
         // EOI to master PIC (port 0x20)
         use x86_64::instructions::port::Port;
@@ -69,11 +72,18 @@ extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFr
         port.write(0x20);
     }
 }
+extern "x86-interrupt" fn syscall_handler(stack_frame: InterruptStackFrame) {
+    use crate::core::interrupts::pic::PICS;
 
+    // TODO: Implement syscall handling
+    unsafe {
+        PICS.lock().notify_end_of_interrupt(InterruptIndex::Syscall.as_u8());
+    }
+}
 
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    use crate::drivers::ps2_keyboard;
-    use crate::interrupts::pic::PICS;
+    use crate::devices::drivers::ps2_keyboard;
+    use crate::core::interrupts::pic::PICS;
     let mut port = Port::<u8>::new(0x60);
     let sc = unsafe { port.read() };
 
@@ -88,7 +98,7 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
 
 extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFrame) {
     let byte: u8 = unsafe { Port::new(0x60).read() };
-    crate::drivers::ps2_mouse::enqueue_mouse_byte(byte);
+    crate::devices::drivers::ps2_mouse::enqueue_mouse_byte(byte);
 
     unsafe {
         // EOI to both PICs (mouse is on secondary PIC)
