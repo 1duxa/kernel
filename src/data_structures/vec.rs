@@ -1,9 +1,50 @@
-//TODO: Make it look normal
+//! # Vector and Collection Utilities
+//!
+//! Re-exports `alloc` crate collections and provides utility functions
+//! for working with strings and numbers in a `no_std` environment.
+//!
+//! ## Exports
+//!
+//! - `Vec`: Dynamic array from `alloc::vec`
+//! - `String`: UTF-8 string from `alloc::string`
+//! - `vec!` macro: Convenient vector creation
+//!
+//! ## Functions
+//!
+//! - `number_to_string`: Converts u64 to decimal string representation
+//!
+//! ## Example
+//!
+//! ```ignore
+//! use crate::data_structures::vec::*;
+//!
+//! let nums = vec![1, 2, 3];
+//! let repeated = vec![0u8; 10];
+//! let s = number_to_string(42); // "42"
+//! ```
+
 extern crate alloc;
 
-use core::fmt;
 pub use alloc::vec::Vec;
 pub use alloc::string::String;
+
+pub fn number_to_string(mut n: u64) -> String {
+    if n == 0 {
+        return String::from("0");
+    }
+    
+    let mut digits = Vec::new();
+    while n > 0 {
+        digits.push((b'0' + (n % 10) as u8) as char);
+        n /= 10;
+    }
+    
+    let mut result = String::new();
+    for i in (0..digits.len()).rev() {
+        result.push(digits[i]);
+    }
+    result
+}
 
 /// Small `vec!` macro that builds an alloc::Vec in no_std with alloc support.
 /// Usage:
@@ -32,16 +73,4 @@ macro_rules! vec {
     }};
 }
 
-/// Small in-crate ToString trait so `.to_string()` works without relying on std prelude.
-/// Import this trait where you call `.to_string()` (e.g. `use crate::data_structures::vec::ToString;`)
-pub trait ToString {
-    fn to_string(&self) -> String;
-}
 
-impl<T: fmt::Display> ToString for T {
-    fn to_string(&self) -> String {
-        let mut s = String::new();
-        let _ = core::fmt::write(&mut s, format_args!("{}", self));
-        s
-    }
-}

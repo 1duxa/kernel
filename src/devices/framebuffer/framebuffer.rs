@@ -183,6 +183,13 @@ impl FramebufferWriter {
             .draw(self)
             .ok();
     }
+
+    /// Draw a full string at the given pixel location (faster than repeated draw_char)
+    pub fn draw_text(&mut self, text: &str, x: i32, y: i32, style: &MonoTextStyle<Rgb888>) {
+        Text::new(text, Point::new(x, y), *style)
+            .draw(self)
+            .ok();
+    }
 }
 
 // Implement DrawTarget for embedded-graphics by writing into nodes then blitting via render_frame()
@@ -216,4 +223,12 @@ pub static FRAMEBUFFER: Mutex<Option<FramebufferWriter>> = Mutex::new(None);
 pub fn init_framebuffer(info: &'static mut BootInfo) {
     let fb = FramebufferWriter::new(info);
     *FRAMEBUFFER.lock() = Some(fb);
+    // Perform an initial clear + render to ensure pixels reach the hardware early
+    {
+        let mut guard = FRAMEBUFFER.lock();
+        if let Some(fb) = guard.as_mut() {
+            fb.clear(Color::BLACK);
+            fb.render_frame();
+        }
+    }
 }

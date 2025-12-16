@@ -1,4 +1,50 @@
+//! # Application Framework
+//!
+//! This module provides a simple application framework for the kernel,
+//! enabling a GUI-like application model with events, focus management,
+//! and rendering.
+//!
+//! ## Architecture
+//!
+//! ```text
+//! ┌─────────────────────────────────────────────┐
+//! │                  AppHost                     │
+//! │  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
+//! │  │  App 1   │  │  App 2   │  │  App N   │  │
+//! │  │ (active) │  │          │  │          │  │
+//! │  └──────────┘  └──────────┘  └──────────┘  │
+//! │       │                                     │
+//! │       ▼                                     │
+//! │  ┌──────────────────────────────────────┐  │
+//! │  │         Focus Blocks                  │  │
+//! │  │  [Button] [Input] [List] [Button]    │  │
+//! │  └──────────────────────────────────────┘  │
+//! └─────────────────────────────────────────────┘
+//! ```
+//!
+//! ## Components
+//!
+//! - **App trait**: Interface all applications must implement
+//! - **AppHost**: Manages multiple apps, handles events and focus
+//! - **AppEvent**: Events dispatched to applications
+//! - **FocusBlock**: Focusable UI regions within an app
+//!
+//! ## Event Flow
+//!
+//! 1. Input events arrive (keyboard, mouse)
+//! 2. AppHost receives event
+//! 3. Focus navigation (Ctrl/Alt + arrows) handled by host
+//! 4. Other events dispatched to active app
+//! 5. App updates state and re-renders
+//!
+//! ## Focus Navigation
+//!
+//! Applications define focusable regions via `focus_blocks()`.
+//! Users navigate with Ctrl/Alt + arrow keys. The focus ring
+//! is drawn around the currently focused block.
+
 use crate::devices::framebuffer::color::Color;
+use crate::devices::drivers::MouseEvent;
 use crate::devices::framebuffer::framebuffer::FramebufferWriter;
 use crate::ui::theme::Theme;
 use crate::ui::widgets::Rect;
@@ -24,6 +70,7 @@ pub enum AppEvent {
         arrow: Option<Arrow>,
     },
     Tick,
+    Mouse(MouseEvent),
 }
 
 #[derive(Clone, Copy)]

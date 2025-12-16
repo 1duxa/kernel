@@ -1,3 +1,27 @@
+//! # UI Theme System
+//!
+//! Defines color themes for consistent visual styling across the UI.
+//!
+//! ## Available Themes
+//!
+//! - `dark_modern()`: Dark theme with blue accents
+//! - `light_modern()`: Light theme with blue accents
+//!
+//! ## Color Roles
+//!
+//! | Color           | Usage                                    |
+//! |-----------------|------------------------------------------|
+//! | `primary`       | Main interactive elements                |
+//! | `secondary`     | Secondary interactive elements           |
+//! | `background`    | Main background                          |
+//! | `surface`       | Cards, panels, elevated surfaces         |
+//! | `text`          | Primary text color                       |
+//! | `text_secondary`| Secondary/muted text                     |
+//! | `accent`        | Highlights, focus indicators             |
+//! | `error`         | Error states                             |
+//! | `success`       | Success states                           |
+//! | `warning`       | Warning states                           |
+
 use crate::devices::framebuffer::color::Color;
 
 /// Modern UI Theme for the OS

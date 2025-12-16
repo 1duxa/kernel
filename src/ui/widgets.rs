@@ -1,3 +1,44 @@
+//! # Widget System
+//!
+//! Provides basic UI widgets for building graphical interfaces in
+//! a `no_std` kernel environment.
+//!
+//! ## Available Widgets
+//!
+//! - `Panel`: Colored rectangle with optional rounded corners
+//! - `Label`: Text label with configurable color
+//! - `VStack`: Vertical layout container
+//! - `HStack`: Horizontal layout container (TODO)
+//!
+//! ## Layout System
+//!
+//! Widgets implement a two-phase rendering:
+//!
+//! 1. **Layout phase**: `layout(bounds)` - Widget receives available space
+//!    and returns actual bounds used
+//! 2. **Render phase**: `render(fb, theme)` - Widget draws itself to
+//!    the framebuffer
+//!
+//! ## Example
+//!
+//! ```ignore
+//! let mut panel = Panel::new(theme.background);
+//! panel.radius = Some(8);
+//! panel.layout(Rect::new(10, 10, 200, 100));
+//! panel.render(&mut fb, &theme);
+//!
+//! let mut label = Label::new(String::from("Hello"), theme.text);
+//! label.layout(Rect::new(20, 20, 100, 30));
+//! label.render(&mut fb, &theme);
+//! ```
+//!
+//! ## Rect
+//!
+//! The fundamental bounds type used throughout the widget system:
+//! ```ignore
+//! Rect { x: i32, y: i32, w: usize, h: usize }
+//! ```
+
 // Minimal widget system compatible with current FramebufferWriter API
 use crate::data_structures::vec::{String, Vec};
 use crate::devices::framebuffer::color::Color;

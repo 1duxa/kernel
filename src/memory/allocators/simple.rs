@@ -1,8 +1,29 @@
+//! # Memory Allocator Implementations
+//!
+//! This module provides several allocator implementations for different use cases:
+//!
+//! ## Active Allocators (Currently Used)
+//!
+//! - [`FixedSizeBlockAllocator`]: Main kernel heap allocator with size-class bins
+//! - [`LinkedListAllocator`]: Fallback for large allocations (used by FixedSizeBlockAllocator)
+//!
+//! ## Reserved Allocators (For Future Use)
+//!
+//! - [`BumpAllocator`]: Simple, fast allocator that never frees (initialization, temporary buffers)
+//! - [`StackAllocator`]: LIFO allocation pattern (temporary allocations with predictable lifetimes)
+//! - [`SlabAllocator`]: Cache-aligned, object-specific allocation
+//! - [`StackHeapAllocator`]: Separate stack/heap regions
+//!
+//! ## Thread Safety
+//!
+//! All allocators are thread-safe, using either atomic operations or spinlocks.
+
 use core::alloc::{GlobalAlloc, Layout};
 use core::cell::UnsafeCell;
 use core::ptr::{self, NonNull};
 use core::sync::atomic::{AtomicUsize, Ordering};
 
+#[allow(unused_imports)]
 use crate::memory::allocators::core::{align_up, align_down, AllocError, SpinLock, validate_region};
 
 // ============================================================================
@@ -16,6 +37,7 @@ use crate::memory::allocators::core::{align_up, align_down, AllocError, SpinLock
 /// - Must call `init()` before use
 /// - Thread-safe through atomic operations
 /// - Never reuses memory until reset
+#[allow(dead_code)]
 pub struct BumpAllocator {
     heap_start: AtomicUsize,
     heap_end: AtomicUsize,
@@ -23,6 +45,7 @@ pub struct BumpAllocator {
     initialized: AtomicUsize,
 }
 
+#[allow(dead_code)]
 impl BumpAllocator {
     pub const fn new() -> Self {
         Self {
@@ -455,6 +478,7 @@ unsafe impl GlobalAlloc for FixedSizeBlockAllocator {
 /// - Must call `init()` before use
 /// - Deallocations must happen in reverse order of allocations
 /// - Thread-safe through atomic operations
+#[allow(dead_code)]
 pub struct StackAllocator {
     start: AtomicUsize,
     end: AtomicUsize,
@@ -462,6 +486,7 @@ pub struct StackAllocator {
     initialized: AtomicUsize,
 }
 
+#[allow(dead_code)]
 impl StackAllocator {
     pub const fn new() -> Self {
         Self {
@@ -575,10 +600,12 @@ unsafe impl GlobalAlloc for StackAllocator {
 // 5. SLAB ALLOCATOR (Cache-aligned, object-specific)
 // ============================================================================
 
+#[allow(dead_code)]
 struct SlabAllocatorInner<const SIZE: usize, const ALIGN: usize> {
     head: Option<NonNull<BlockNode>>,
 }
 
+#[allow(dead_code)]
 pub struct SlabAllocator<const SIZE: usize, const ALIGN: usize> {
     inner: UnsafeCell<SlabAllocatorInner<SIZE, ALIGN>>,
     lock: SpinLock,
@@ -587,6 +614,7 @@ pub struct SlabAllocator<const SIZE: usize, const ALIGN: usize> {
 // Safety: The UnsafeCell is protected by SpinLock
 unsafe impl<const SIZE: usize, const ALIGN: usize> Sync for SlabAllocator<SIZE, ALIGN> {}
 
+#[allow(dead_code)]
 impl<const SIZE: usize, const ALIGN: usize> SlabAllocator<SIZE, ALIGN> {
     pub const fn new() -> Self {
         Self {
@@ -650,11 +678,13 @@ unsafe impl<const SIZE: usize, const ALIGN: usize> GlobalAlloc for SlabAllocator
 // ============================================================================
 
 /// A wrapper that provides separate stack and heap allocation regions
+#[allow(dead_code)]
 pub struct StackHeapAllocator {
     stack: StackAllocator,
     heap: FixedSizeBlockAllocator,
 }
 
+#[allow(dead_code)]
 impl StackHeapAllocator {
     pub const fn new() -> Self {
         Self {

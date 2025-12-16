@@ -1,3 +1,27 @@
+//! # Process Management System Calls
+//!
+//! Implements process creation, termination, and identification.
+//!
+//! ## Supported Operations
+//!
+//! - `sys_exit`: Terminate current process
+//! - `sys_fork`: Create child process (partial)
+//! - `sys_exec`: Execute new program (stub)
+//! - `sys_wait`: Wait for child process (stub)
+//! - `sys_getpid`: Get current process ID
+//!
+//! ## Process Table
+//!
+//! A simple fixed-size process table tracks active processes:
+//! - Maximum 256 processes
+//! - Protected by spinlock
+//! - Each entry stores PID, parent PID, exit status
+//!
+//! ## PID Allocation
+//!
+//! PIDs are allocated atomically from a counter starting at 1.
+//! PID 0 indicates no process (kernel context).
+
 use crate::syscalls::dispatcher::{SyscallResult, SyscallError};
 use core::sync::atomic::{AtomicUsize, Ordering};
 

@@ -259,23 +259,20 @@ impl Terminal {
             }
         }
     }
-    // TODO: Slow as hell
     fn scroll_up(&mut self) {
-        // Shift all rows up
-        for y in 0..self.height - 1 {
-            for x in 0..self.width {
-                let src_idx = (y + 1) * self.width + x;
-                let dst_idx = y * self.width + x;
-                self.cells[dst_idx] = self.cells[src_idx];
-                self.dirty_cells[dst_idx] = true;
-            }
-        }
-
+        let row_size = self.width;
+        let total_cells = self.cells.len();
+        
+        self.cells.copy_within(row_size..total_cells, 0);
+        
         let last_row_start = (self.height - 1) * self.width;
+        let blank = Cell::new(' ', self.fg, self.bg);
+        
         for i in 0..self.width {
-            self.cells[last_row_start + i] = Cell::new(' ', self.fg, self.bg);
-            self.dirty_cells[last_row_start + i] = true;
+            self.cells[last_row_start + i] = blank;
         }
+        
+        self.mark_all_dirty();
     }
 
     pub fn clear(&mut self) {
@@ -315,29 +312,56 @@ impl Terminal {
             }
         }
         for y in 0..max_rows {
-            for x in 0..max_cols {
+            let mut x = 0usize;
+            while x < max_cols {
                 let idx = y * self.width + x;
                 if !self.dirty_cells[idx] {
+                    x += 1;
                     continue;
                 }
-                let cell = &self.cells[idx];
-                let px = off_x + (x * self.char_width) as i32;
+                // Start of a dirty run; gather contiguous cells with same fg/bg
+                let start_x = x;
+                let first_cell = self.cells[idx];
+                let run_fg = first_cell.fg;
+                let run_bg = first_cell.bg;
+                let mut run_len = 1usize;
+                let mut any_non_space = first_cell.ch != ' ';
+                x += 1;
+                while x < max_cols {
+                    let idx2 = y * self.width + x;
+                    if !self.dirty_cells[idx2] { break; }
+                    let c = self.cells[idx2];
+                    if c.fg == run_fg && c.bg == run_bg {
+                        any_non_space |= c.ch != ' ';
+                        run_len += 1;
+                        x += 1;
+                    } else {
+                        break;
+                    }
+                }
+
+                let px = off_x + (start_x * self.char_width) as i32;
                 let py = off_y + (y * self.char_height) as i32;
-                fb.fill_rect(
-                    px,
-                    py,
-                    self.char_width as u32,
-                    self.char_height as u32,
-                    cell.bg,
-                );
-                if cell.ch != ' ' {
+                // Fill background for the entire run
+                fb.fill_rect(px, py, (run_len * self.char_width) as u32, self.char_height as u32, run_bg);
+
+                if any_non_space {
+                    // Build a string for the run and draw text in one call
+                    let mut s = String::with_capacity(run_len);
+                    for xi in start_x..start_x + run_len {
+                        s.push(self.cells[y * self.width + xi].ch);
+                    }
                     let style = MonoTextStyleBuilder::new()
                         .font(&FONT_10X20)
-                        .text_color(cell.fg.to_rgb888())
+                        .text_color(run_fg.to_rgb888())
                         .build();
-                    fb.draw_char(cell.ch, px, py + 16, &style);
+                    fb.draw_text(&s, px, py + 16, &style);
                 }
-                self.dirty_cells[idx] = false;
+
+                // Mark run as rendered
+                for xi in start_x..start_x + run_len {
+                    self.dirty_cells[y * self.width + xi] = false;
+                }
             }
         }
         self.last_cursor_x = self.cursor_x;

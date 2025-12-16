@@ -1,3 +1,29 @@
+//! # Input Event Types
+//!
+//! Defines unified input event types for the kernel.
+//!
+//! ## Event Types
+//!
+//! - `InputEvent::Keyboard(KeyEvent)`: Keyboard press/release
+//! - `InputEvent::Mouse(MouseEvent)`: Mouse movement/button
+//!
+//! ## InputEventHandler Trait
+//!
+//! Applications implement this trait to receive input events:
+//!
+//! ```ignore
+//! impl InputEventHandler for MyApp {
+//!     fn handle_keyboard(&mut self, event: KeyEvent) {
+//!         // Handle key press
+//!     }
+//!     fn handle_mouse(&mut self, event: MouseEvent) {
+//!         // Handle mouse movement
+//!     }
+//! }
+//! ```
+//!
+//! Events can be dispatched via `InputEvent::dispatch()`.
+
 use crate::devices::drivers::{KeyEvent, MouseEvent};
 /// Unified input event type
 #[derive(Debug, Clone, Copy)]

@@ -1,3 +1,30 @@
+//! # Global Descriptor Table (GDT)
+//!
+//! Configures the GDT with code/data segments and Task State Segment (TSS).
+//!
+//! ## Purpose
+//!
+//! In 64-bit mode, the GDT is minimal but still required for:
+//! - Kernel code and data segment selectors
+//! - TSS (Task State Segment) for interrupt stack switching
+//!
+//! ## TSS Configuration
+//!
+//! The TSS provides alternate stacks for specific interrupts.
+//! This is critical for double faults, which need their own stack
+//! to avoid cascading failures when the kernel stack is corrupt.
+//!
+//! ## IST (Interrupt Stack Table)
+//!
+//! - Index 0: Double fault handler stack (4KB)
+//!
+//! ## Initialization
+//!
+//! `init()` must be called early in boot to:
+//! 1. Load the GDT
+//! 2. Set segment registers (CS, DS, ES, SS)
+//! 3. Load the TSS
+
 // gdt.rs
 use spin::Lazy;
 use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector};

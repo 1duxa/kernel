@@ -1,3 +1,32 @@
+//! # Focus Navigation
+//!
+//! Provides spatial focus navigation for UI applications.
+//!
+//! ## Overview
+//!
+//! This module implements directional focus movement, allowing users
+//! to navigate between focusable UI blocks using arrow keys. The
+//! navigation algorithm finds the "best" target in the requested
+//! direction based on spatial position.
+//!
+//! ## Algorithm
+//!
+//! The `move_focus` function:
+//! 1. Calculates the center of the current focus block
+//! 2. For each candidate block, checks if it's in the requested direction
+//! 3. Uses a simple distance score to pick the closest valid target
+//!
+//! Direction cones:
+//! - Up: dy < 0 and |dx| ≤ |dy|
+//! - Down: dy > 0 and |dx| ≤ dy  
+//! - Left: dx < 0 and |dy| ≤ |dx|
+//! - Right: dx > 0 and |dy| ≤ dx
+//!
+//! ## Visual Feedback
+//!
+//! `draw_focus_ring` renders a 1-pixel border around the focused
+//! block to indicate keyboard focus.
+
 use super::{Arrow, FocusBlock};
 use crate::devices::framebuffer::color::Color;
 use crate::devices::framebuffer::framebuffer::FramebufferWriter;

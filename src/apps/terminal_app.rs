@@ -1,8 +1,40 @@
+//! # Terminal Application
+//!
+//! Interactive terminal/shell application providing a command-line
+//! interface for the kernel.
+//!
+//! ## Features
+//!
+//! - Command input and execution
+//! - Multi-line input support (Enter adds line, Shift+Enter executes)
+//! - Backspace handling with boundary protection
+//! - Clear screen (Ctrl+L)
+//! - Mouse event display
+//!
+//! ## Commands
+//!
+//! Commands are executed via `CommandExecutor`. See `cmd_executor`
+//! module for available commands.
+//!
+//! ## Keyboard Shortcuts
+//!
+//! - `Enter`: New line
+//! - `Shift+Enter`: Execute command
+//! - `Ctrl+L`: Clear screen
+//! - `Backspace`: Delete character (respects prompt boundary)
+//!
+//! ## Integration
+//!
+//! The terminal app wraps a `Terminal` widget and manages:
+//! - Input buffering in `current_line`
+//! - Prompt display and tracking
+//! - Command execution results
+
 use crate::app::{App, AppEvent, FocusBlock};
 use crate::cmd_executor::CommandExecutor;
 use crate::data_structures::vec::String;
 use crate::devices::framebuffer::framebuffer::FramebufferWriter;
-use crate::terminal::Terminal;
+use crate::terminal_v2::Terminal;
 use crate::ui::theme::Theme;
 use crate::ui::widgets::Rect;
 
@@ -62,6 +94,11 @@ impl App for TerminalApp {
         self.term.set_prompt_start();
     }
     fn on_event(&mut self, event: AppEvent) {
+        if let AppEvent::Mouse(_me) = event {
+            // For now, just indicate a mouse event was received
+            self.term.write("[mouse]");
+            return;
+        }
         if let AppEvent::KeyPress {
             ch,
             ctrl,

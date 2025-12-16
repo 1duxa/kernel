@@ -1,3 +1,33 @@
+//! # Kernel Initialization
+//!
+//! Orchestrates the kernel boot sequence with proper error handling
+//! and status tracking.
+//!
+//! ## Initialization Phases
+//!
+//! 1. **CPU Features**: Validates CPU capabilities
+//! 2. **Memory Management**: Heap, paging, frame allocator
+//! 3. **Interrupt System**: GDT, IDT, PIC setup
+//! 4. **Display System**: Framebuffer initialization
+//! 5. **Input Devices**: Keyboard and mouse drivers
+//!
+//! ## Status Tracking
+//!
+//! Each phase updates its status via `update_component_status`:
+//! - `NotStarted` → `InProgress` → `Completed` or `Failed`
+//!
+//! ## Error Handling
+//!
+//! Failures are logged and propagated. The kernel can continue
+//! with partial functionality or halt based on failure severity.
+//!
+//! ## Usage
+//!
+//! ```ignore
+//! use crate::core::kernel::init_kernel;
+//! init_kernel().expect("Kernel initialization failed");
+//! ```
+
 /// Kernel initialization phases
 use crate::core::kernel::status::{update_component_status, InitStatus};
 use crate::println;

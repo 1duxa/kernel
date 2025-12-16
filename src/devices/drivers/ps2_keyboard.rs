@@ -1,3 +1,52 @@
+//! # PS/2 Keyboard Driver
+//!
+//! Handles PS/2 keyboard input via IRQ1 interrupt.
+//!
+//! ## Architecture
+//!
+//! ```text
+//! ┌─────────────┐    IRQ1     ┌──────────────┐
+//! │  Keyboard   │────────────▶│  Ring Buffer │
+//! │  (Port 60)  │             │  (256 bytes) │
+//! └─────────────┘             └──────┬───────┘
+//!                                    │
+//!                                    ▼
+//!                         ┌──────────────────┐
+//!                         │ ScancodeDecoder  │
+//!                         │ - Extended keys  │
+//!                         │ - Modifiers      │
+//!                         │ - Shift mapping  │
+//!                         └────────┬─────────┘
+//!                                  │
+//!                                  ▼
+//!                              KeyEvent
+//! ```
+//!
+//! ## Scancode Processing
+//!
+//! 1. IRQ1 handler reads scancode from port 0x60
+//! 2. Scancode enqueued to lock-free ring buffer
+//! 3. `ScancodeDecoder` processes scancodes:
+//!    - 0xE0 prefix for extended keys (arrows)
+//!    - Bit 7 indicates key release
+//!    - Modifier tracking (Shift, Ctrl, Alt)
+//! 4. Returns `KeyEvent` with character and modifiers
+//!
+//! ## Usage
+//!
+//! ```ignore
+//! // In interrupt handler:
+//! let scancode = unsafe { Port::<u8>::new(0x60).read() };
+//! enqueue_scancode(scancode);
+//!
+//! // In main loop:
+//! if let Some(sc) = dequeue_scancode() {
+//!     if let Some(event) = decoder.process_scancode(sc) {
+//!         // Handle key event
+//!     }
+//! }
+//! ```
+
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 const BUFFER_SIZE: usize = 256;

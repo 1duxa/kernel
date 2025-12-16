@@ -1,3 +1,25 @@
+//! # Kernel Status Tracking
+//!
+//! Tracks initialization status of kernel components for boot diagnostics.
+//!
+//! ## Status Lifecycle
+//!
+//! ```text
+//! NotStarted → InProgress → Completed
+//!                        → Failed(reason)
+//! ```
+//!
+//! ## API
+//!
+//! - `register_component(name)`: Add a component to track
+//! - `update_component_status(name, status)`: Update component status
+//! - `get_all_statuses()`: Get status of all components
+//! - `all_components_ready()`: Check if boot is complete
+//!
+//! ## Thread Safety
+//!
+//! Status list is protected by a spinlock for safe concurrent access.
+
 use core::fmt;
 use crate::data_structures::vec::Vec;
 use spin::Mutex;

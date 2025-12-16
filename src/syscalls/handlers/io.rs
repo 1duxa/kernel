@@ -1,3 +1,26 @@
+//! # I/O System Call Handlers
+//!
+//! Implements file descriptor operations for user processes.
+//!
+//! ## Supported Operations
+//!
+//! - `sys_read`: Read from file descriptor
+//! - `sys_write`: Write to file descriptor  
+//! - `sys_open`: Open file (not implemented)
+//! - `sys_close`: Close file descriptor (not implemented)
+//!
+//! ## File Descriptors
+//!
+//! | FD | Stream | Implementation  |
+//! |----|--------|-----------------|
+//! | 0  | stdin  | Keyboard buffer |
+//! | 1  | stdout | Serial/terminal |
+//! | 2  | stderr | Serial/terminal |
+//!
+//! ## Note
+//!
+//! Currently only stdout/stderr write is fully implemented.
+
 use crate::syscalls::dispatcher::{SyscallResult, SyscallError};
 
 /// Read from file descriptor

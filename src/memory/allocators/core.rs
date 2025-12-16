@@ -1,3 +1,29 @@
+//! # Allocator Core Utilities
+//!
+//! Provides shared utilities for all allocator implementations.
+//!
+//! ## SpinLock
+//!
+//! Simple spinlock for thread-safe allocator access:
+//! ```ignore
+//! let lock = SpinLock::new();
+//! lock.with_lock(|| {
+//!     // Critical section
+//! });
+//! ```
+//!
+//! ## Alignment Functions
+//!
+//! - `align_up(addr, align)`: Round up to alignment
+//! - `align_down(addr, align)`: Round down to alignment
+//!
+//! ## AllocError
+//!
+//! Error type for allocation failures:
+//! - `OutOfMemory`: No space available
+//! - `InvalidAddress`: Bad memory address
+//! - `InvalidLayout`: Bad allocation layout
+
 /// Core utilities and error types for allocators
 use core::sync::atomic::{AtomicUsize, Ordering};
 

@@ -1,6 +1,35 @@
+//! # System Call Dispatcher
+//!
+//! Routes system calls to appropriate handlers based on syscall number.
+//!
+//! ## Dispatch Process
+//!
+//! 1. Syscall interrupt (int 0x80) triggers dispatcher
+//! 2. Syscall number from RAX selects handler
+//! 3. Arguments passed via registers (RDI, RSI, RDX, etc.)
+//! 4. Result returned in RAX
+//!
+//! ## Error Handling
+//!
+//! Handlers return `SyscallResult`:
+//! - `Ok(value)`: Success with return value
+//! - `Err(SyscallError)`: Error code converted to errno
+//!
+//! ## Errno Values
+//!
+//! | Error             | Errno | Description           |
+//! |-------------------|-------|-----------------------|
+//! | InvalidSyscall    | -1    | Unknown syscall       |
+//! | InvalidArgument   | -22   | EINVAL               |
+//! | PermissionDenied  | -13   | EACCES               |
+//! | NotImplemented    | -38   | ENOSYS               |
+//! | BadFileDescriptor | -9    | EBADF                |
+//! | NoMemory          | -12   | ENOMEM               |
+//! | IoError           | -5    | EIO                  |
+
 use crate::syscalls::numbers::SyscallNumber;
 use crate::syscalls::handlers;
-use crate::syscalls::handlers::memory::{sys_brk, sys_mmap, sys_munmap};
+use crate::memory::{sys_brk, sys_mmap, sys_munmap};
 /// System call result type
 pub type SyscallResult = Result<usize, SyscallError>;
 
