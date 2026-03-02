@@ -173,14 +173,14 @@ impl FramebufferWriter {
         self.draw_rect(0, 0, self.width, self.height, color);
     }
 
-    pub fn fill_rect(&mut self, x: i32, y: i32, width: u32, height: u32, color: Color) {
+    pub fn fill_rect(&mut self, x: usize, y: usize, width: usize, height: usize, color: Color) {
         if width == 0 || height == 0 {
             return;
         }
         let x0 = x.max(0) as usize;
         let y0 = y.max(0) as usize;
-        let x1 = (x0 as u32 + width) as usize;
-        let y1 = (y0 as u32 + height) as usize;
+        let x1 = x0 + width;
+        let y1 = y0 + height;
         self.draw_rect(x0, y0, x1, y1, color);
     }
 

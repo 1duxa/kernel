@@ -23,5 +23,6 @@
 //! - Per-row hashing detects actual changes within tiles
 //! - Only truly modified rows are copied to framebuffer
 
-pub mod framebuffer;
 pub mod color;
+pub mod framebuffer;
+pub mod shape;

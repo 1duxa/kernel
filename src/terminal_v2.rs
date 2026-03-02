@@ -405,11 +405,11 @@ impl Terminal {
         if self.cursor_x >= self.width || self.cursor_y >= self.height {
             return;
         }
-        let px = off_x + (self.cursor_x * self.char_width) as i32;
-        let py = off_y + (self.cursor_y * self.char_height) as i32;
-        let inset = 2i32;
-        let w = (self.char_width as i32 - inset * 2).max(1) as u32;
-        let h = (self.char_height as i32 - inset * 2).max(1) as u32;
+        let px = off_x as usize + self.cursor_x * self.char_width;
+        let py = off_y as usize + self.cursor_y * self.char_height;
+        let inset = 2usize;
+        let w = (self.char_width - inset * 2).max(1);
+        let h = (self.char_height - inset * 2).max(1);
         fb.fill_rect(px + inset, py + inset, w, h, Color::from_hex(0xCCCCCC));
     }
 
@@ -499,10 +499,10 @@ impl Terminal {
 
             // Fill background
             fb.fill_rect(
-                px,
-                py,
-                (run_len * self.char_width) as u32,
-                self.char_height as u32,
+                px as usize,
+                py as usize,
+                run_len * self.char_width,
+                self.char_height,
                 run_bg,
             );
 

@@ -9,7 +9,7 @@
 //! - Very fast allocation (just pointer increment)
 //! - Good for: initialization, temporary buffers
 //!
-//! ### FreeListAllocator  
+//! ### FreeListAllocator
 //! - Maintains linked list of free blocks
 //! - Supports allocation and deallocation
 //! - First-fit allocation strategy
@@ -25,8 +25,9 @@
 //! - `AllocError`: Allocation failure types
 //! - Alignment helpers: `align_up`, `align_down`
 
+pub mod block;
+pub mod bump;
 mod core;
-pub mod simple;
-
-pub use core::AllocError;
-pub use simple::*;
+pub mod linked_list;
+pub mod slab;
+pub mod stack;

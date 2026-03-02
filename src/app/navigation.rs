@@ -18,7 +18,7 @@
 //!
 //! Direction cones:
 //! - Up: dy < 0 and |dx| ≤ |dy|
-//! - Down: dy > 0 and |dx| ≤ dy  
+//! - Down: dy > 0 and |dx| ≤ dy
 //! - Left: dx < 0 and |dy| ≤ |dx|
 //! - Right: dx > 0 and |dy| ≤ dx
 //!
@@ -30,7 +30,7 @@
 use super::{Arrow, FocusBlock};
 use crate::devices::framebuffer::color::Color;
 use crate::devices::framebuffer::framebuffer::FramebufferWriter;
-use crate::ui::widgets::Rect;
+use crate::devices::framebuffer::shape::Rect;
 
 pub fn move_focus(blocks: &[FocusBlock], current: u32, dir: Arrow) -> u32 {
     if blocks.is_empty() {
@@ -71,8 +71,8 @@ pub fn draw_focus_ring(fb: &mut FramebufferWriter, rect: Rect, color: Color) {
     if rect.w == 0 || rect.h == 0 {
         return;
     }
-    fb.fill_rect(rect.x, rect.y, rect.w as u32, 1, color);
-    fb.fill_rect(rect.x, rect.y + rect.h as i32 - 1, rect.w as u32, 1, color);
-    fb.fill_rect(rect.x, rect.y, 1, rect.h as u32, color);
-    fb.fill_rect(rect.x + rect.w as i32 - 1, rect.y, 1, rect.h as u32, color);
+    fb.fill_rect(rect.x, rect.y, rect.w, 1, color);
+    fb.fill_rect(rect.x, rect.y + rect.h - 1, rect.w, 1, color);
+    fb.fill_rect(rect.x, rect.y, 1, rect.h, color);
+    fb.fill_rect(rect.x + rect.w - 1, rect.y, 1, rect.h, color);
 }

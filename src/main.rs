@@ -15,15 +15,15 @@
 extern crate alloc;
 extern crate rlibc;
 
-use ::core::fmt::Write;
-
 use crate::app::{AppEvent, AppHost};
 use crate::apps::logs_app::LogsApp;
 use crate::apps::terminal_app::TerminalApp;
 use crate::devices::drivers::{ps2_keyboard, ps2_mouse};
 use crate::devices::framebuffer::framebuffer::{init_framebuffer, FRAMEBUFFER};
+use crate::devices::framebuffer::shape::Rect;
 use crate::devices::mouse_cursor;
 use crate::terminal_v2::Terminal;
+
 use crate::ui::Theme;
 use alloc::boxed::Box;
 use bootloader_api::{entry_point, BootInfo};
@@ -117,16 +117,12 @@ pub fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     host.register_app(Box::new(LogsApp::new(cols / 2, rows, &theme)));
 
     {
-        use crate::ui::widgets::Rect;
         let mut guard = FRAMEBUFFER.lock();
         let fb = guard.as_mut().unwrap();
 
         fb.clear(theme.background);
         host.layout_app(0, Rect::new(0, 0, fb.width / 2, fb.height));
-        host.layout_app(
-            1,
-            Rect::new((fb.width / 2) as i32, 0, fb.width / 2, fb.height),
-        );
+        host.layout_app(1, Rect::new(fb.width / 2, 0, fb.width / 2, fb.height));
 
         host.app_mut(0).init();
         host.app_mut(1).init();
