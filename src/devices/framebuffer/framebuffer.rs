@@ -190,8 +190,10 @@ impl FramebufferWriter {
         Text::new(s, Point::new(x, y), *style).draw(self).ok();
     }
 
-    pub fn draw_text(&mut self, text: &str, x: i32, y: i32, style: &MonoTextStyle<Rgb888>) {
-        Text::new(text, Point::new(x, y), *style).draw(self).ok();
+    pub fn draw_text(&mut self, text: &str, x: usize, y: usize, style: &MonoTextStyle<Rgb888>) {
+        Text::new(text, Point::new(x as i32, y as i32), *style)
+            .draw(self)
+            .ok();
     }
 }
 

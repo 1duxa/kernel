@@ -1,3 +1,4 @@
+#[derive(Debug, Clone, Copy)]
 pub struct Rect {
     pub x: usize,
     pub y: usize,

@@ -401,12 +401,12 @@ impl Terminal {
     // =========================================================================
 
     /// Draw cursor at current position
-    pub fn draw_cursor(&self, fb: &mut FramebufferWriter, off_x: i32, off_y: i32) {
+    pub fn draw_cursor(&self, fb: &mut FramebufferWriter, off_x: usize, off_y: usize) {
         if self.cursor_x >= self.width || self.cursor_y >= self.height {
             return;
         }
-        let px = off_x as usize + self.cursor_x * self.char_width;
-        let py = off_y as usize + self.cursor_y * self.char_height;
+        let px = off_x + self.cursor_x * self.char_width;
+        let py = off_y + self.cursor_y * self.char_height;
         let inset = 2usize;
         let w = (self.char_width - inset * 2).max(1);
         let h = (self.char_height - inset * 2).max(1);
@@ -428,8 +428,8 @@ impl Terminal {
     pub fn render_into_rect(
         &mut self,
         fb: &mut FramebufferWriter,
-        off_x: i32,
-        off_y: i32,
+        off_x: usize,
+        off_y: usize,
         max_w: usize,
         max_h: usize,
     ) {
@@ -465,12 +465,12 @@ impl Terminal {
         fb: &mut FramebufferWriter,
         screen_y: usize,
         line_idx: usize,
-        off_x: i32,
-        off_y: i32,
+        off_x: usize,
+        off_y: usize,
         max_cols: usize,
     ) {
         let line = &self.lines[line_idx];
-        let py = off_y + (screen_y * self.char_height) as i32;
+        let py = off_y + screen_y * self.char_height;
 
         let mut x = 0usize;
         while x < max_cols {
@@ -495,7 +495,7 @@ impl Terminal {
                 }
             }
 
-            let px = off_x + (start_x * self.char_width) as i32;
+            let px = off_x + start_x * self.char_width;
 
             // Fill background
             fb.fill_rect(
