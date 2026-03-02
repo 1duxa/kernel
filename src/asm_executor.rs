@@ -14,10 +14,10 @@
 //! - Falls back to heap allocation if mmap fails (may fail due to NX bit)
 //! - Memory is automatically freed after execution
 
-use crate::data_structures::vec::{String, Vec};
 use crate::memory::{sys_mmap, sys_munmap};
-use crate::{println, log_info, log_error};
+use crate::{log_error, log_info, println};
 use alloc::alloc::{alloc, dealloc};
+use alloc::{string::String, vec::Vec};
 use core::alloc::Layout;
 
 const MAX_CODE_SIZE: usize = 4096;
@@ -91,7 +91,7 @@ extern "C" fn execute_code(code_ptr: *const ()) -> u64 {
 
 /// Pre-built assembly programs for testing.
 pub struct AsmProgram;
- 
+
 impl AsmProgram {
     /// Returns 42: `mov eax, 42; ret`
     pub fn simple_return_42() -> &'static [u8] {
@@ -100,7 +100,9 @@ impl AsmProgram {
 
     /// Returns 3: `mov eax, 1; mov ebx, 2; add eax, ebx; ret`
     pub fn simple_add_1_2() -> &'static [u8] {
-        &[0xb8, 0x01, 0x00, 0x00, 0x00, 0xbb, 0x02, 0x00, 0x00, 0x00, 0x01, 0xd8, 0xc3]
+        &[
+            0xb8, 0x01, 0x00, 0x00, 0x00, 0xbb, 0x02, 0x00, 0x00, 0x00, 0x01, 0xd8, 0xc3,
+        ]
     }
 
     /// Build code that returns a specific 64-bit value.

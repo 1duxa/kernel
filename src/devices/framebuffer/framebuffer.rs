@@ -1,17 +1,13 @@
 //! Framebuffer writer using embedded-graphics + tiled renderer
-use bootloader_api::BootInfo;
-use crate::data_structures::vec::Vec;
 use super::color::Color;
-use spin::Mutex;
-use embedded_graphics::{
-    prelude::*,
-    pixelcolor::Rgb888,
-    mono_font::MonoTextStyle,
-    text::Text,
-    Drawable,
-};
-use core::sync::atomic::{AtomicBool, Ordering};
 use alloc::vec;
+use alloc::vec::Vec;
+use bootloader_api::BootInfo;
+use core::sync::atomic::{AtomicBool, Ordering};
+use embedded_graphics::{
+    mono_font::MonoTextStyle, pixelcolor::Rgb888, prelude::*, text::Text, Drawable,
+};
+use spin::Mutex;
 const TILE_W: usize = 32;
 const TILE_H: usize = 32;
 
@@ -22,7 +18,7 @@ pub struct FramebufferWriter {
     pub stride: usize,
     pub bytes_per_pixel: usize,
     // Tiled renderer state
-    nodes: Vec<u32>,                // packed RGB888 per pixel
+    nodes: Vec<u32>, // packed RGB888 per pixel
     tiles_x: usize,
     tiles_y: usize,
     tile_dirty: Vec<AtomicBool>,
@@ -58,7 +54,9 @@ impl FramebufferWriter {
     }
 
     #[inline]
-    fn idx(&self, x: usize, y: usize) -> usize { y * self.width + x }
+    fn idx(&self, x: usize, y: usize) -> usize {
+        y * self.width + x
+    }
 
     #[inline]
     fn tile_index_of(&self, x: usize, y: usize) -> usize {
@@ -73,11 +71,15 @@ impl FramebufferWriter {
     }
 
     #[inline]
-    fn pack_rgb888(c: Color) -> u32 { ((c.r as u32) << 16) | ((c.g as u32) << 8) | (c.b as u32) }
+    fn pack_rgb888(c: Color) -> u32 {
+        ((c.r as u32) << 16) | ((c.g as u32) << 8) | (c.b as u32)
+    }
 
     /// Low-level pixel write into nodes with dirty marking
     pub fn put_pixel(&mut self, x: usize, y: usize, color: Color) {
-        if x >= self.width || y >= self.height { return; }
+        if x >= self.width || y >= self.height {
+            return;
+        }
         let idx = self.idx(x, y);
         let val = Self::pack_rgb888(color);
         if self.nodes[idx] != val {
@@ -89,8 +91,8 @@ impl FramebufferWriter {
 
     /// Batch many pixels
     pub fn put_pixels(&mut self, pixels: &[(usize, usize, Color)]) {
-        for &(x,y,c) in pixels {
-            self.put_pixel(x,y,c);
+        for &(x, y, c) in pixels {
+            self.put_pixel(x, y, c);
         }
     }
 
@@ -98,7 +100,9 @@ impl FramebufferWriter {
     pub fn draw_rect(&mut self, x0: usize, y0: usize, x1: usize, y1: usize, color: Color) {
         let x1 = x1.min(self.width);
         let y1 = y1.min(self.height);
-        if x0 >= x1 || y0 >= y1 { return; }
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
         let val = Self::pack_rgb888(color);
         let tx0 = x0 / TILE_W;
         let ty0 = y0 / TILE_H;
@@ -106,19 +110,25 @@ impl FramebufferWriter {
         let ty1 = (y1 + TILE_H - 1) / TILE_H;
         for y in y0..y1 {
             let base = y * self.width;
-            for x in x0..x1 { self.nodes[base + x] = val; }
+            for x in x0..x1 {
+                self.nodes[base + x] = val;
+            }
         }
-        for ty in ty0..ty1 { for tx in tx0..tx1 {
-            let t = ty * self.tiles_x + tx;
-            self.tile_dirty[t].store(true, Ordering::Relaxed);
-        }}
+        for ty in ty0..ty1 {
+            for tx in tx0..tx1 {
+                let t = ty * self.tiles_x + tx;
+                self.tile_dirty[t].store(true, Ordering::Relaxed);
+            }
+        }
     }
 
     pub fn render_frame(&mut self) {
         let fb_row_bytes = self.stride * self.bytes_per_pixel;
         let tiles = self.tiles_x * self.tiles_y;
         for tile_idx in 0..tiles {
-            if !self.tile_dirty[tile_idx].swap(false, Ordering::Relaxed) { continue; }
+            if !self.tile_dirty[tile_idx].swap(false, Ordering::Relaxed) {
+                continue;
+            }
             let tx = tile_idx % self.tiles_x;
             let ty = tile_idx / self.tiles_x;
             let sx = tx * TILE_W;
@@ -150,7 +160,9 @@ impl FramebufferWriter {
                     self.framebuffer[off] = b;
                     self.framebuffer[off + 1] = g;
                     self.framebuffer[off + 2] = r;
-                    if self.bytes_per_pixel == 4 { self.framebuffer[off + 3] = 255; }
+                    if self.bytes_per_pixel == 4 {
+                        self.framebuffer[off + 3] = 255;
+                    }
                     off += self.bytes_per_pixel;
                 }
             }
@@ -162,7 +174,9 @@ impl FramebufferWriter {
     }
 
     pub fn fill_rect(&mut self, x: i32, y: i32, width: u32, height: u32, color: Color) {
-        if width == 0 || height == 0 { return; }
+        if width == 0 || height == 0 {
+            return;
+        }
         let x0 = x.max(0) as usize;
         let y0 = y.max(0) as usize;
         let x1 = (x0 as u32 + width) as usize;
@@ -173,15 +187,11 @@ impl FramebufferWriter {
     pub fn draw_char(&mut self, ch: char, x: i32, y: i32, style: &MonoTextStyle<Rgb888>) {
         let mut buf = [0u8; 4];
         let s = ch.encode_utf8(&mut buf);
-        Text::new(s, Point::new(x, y), *style)
-            .draw(self)
-            .ok();
+        Text::new(s, Point::new(x, y), *style).draw(self).ok();
     }
 
     pub fn draw_text(&mut self, text: &str, x: i32, y: i32, style: &MonoTextStyle<Rgb888>) {
-        Text::new(text, Point::new(x, y), *style)
-            .draw(self)
-            .ok();
+        Text::new(text, Point::new(x, y), *style).draw(self).ok();
     }
 }
 
@@ -191,7 +201,7 @@ impl DrawTarget for FramebufferWriter {
 
     fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
     where
-        I: IntoIterator<Item = Pixel<Self::Color>>
+        I: IntoIterator<Item = Pixel<Self::Color>>,
     {
         for Pixel(Point { x, y }, color) in pixels {
             if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {

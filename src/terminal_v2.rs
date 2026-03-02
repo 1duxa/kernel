@@ -14,6 +14,7 @@ use crate::{
     devices::framebuffer::{color::Color, framebuffer::FramebufferWriter},
     ui::Theme,
 };
+use alloc::{string::String, vec::Vec};
 use core::fmt::{self, Write};
 use embedded_graphics::mono_font::{ascii::FONT_10X20, MonoTextStyleBuilder};
 

@@ -35,14 +35,11 @@ mod asm_executor;
 mod cmd_executor;
 mod core;
 mod devices;
-mod executor;
 mod memory;
 mod syscalls;
-mod task;
 mod terminal_logger;
 mod terminal_v2;
 mod test_env;
-mod ui;
 
 const BOOTLOADER_CONFIG: bootloader_api::BootloaderConfig = {
     let mut config = bootloader_api::BootloaderConfig::new_default();

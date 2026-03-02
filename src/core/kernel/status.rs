@@ -20,8 +20,8 @@
 //!
 //! Status list is protected by a spinlock for safe concurrent access.
 
+use alloc::vec::Vec;
 use core::fmt;
-use crate::data_structures::vec::Vec;
 use spin::Mutex;
 
 /// Kernel initialization status tracking
@@ -97,4 +97,3 @@ impl fmt::Display for InitStatus {
         }
     }
 }
-

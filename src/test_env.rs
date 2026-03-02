@@ -8,7 +8,7 @@
 //! - `test_basic_paging()`: Tests page table mapping/unmapping
 //! - `test_memory_allocation()`: Tests heap allocator
 //!
-//! ### Process Tests  
+//! ### Process Tests
 //! - `test_process_creation()`: Tests process/task spawning
 //!
 //! ### Assembly Execution Tests
@@ -31,10 +31,10 @@
 //! > test_asm       # Run assembly tests
 //! ```
 
-use crate::data_structures::vec::String;
 use crate::println;
+use alloc::string::String;
 use core::sync::atomic::{AtomicUsize, Ordering};
-use x86_64::structures::paging::{Page, PageTableFlags, Mapper, FrameAllocator, Translate};
+use x86_64::structures::paging::{FrameAllocator, Mapper, Page, PageTableFlags, Translate};
 use x86_64::VirtAddr;
 // Using GlobalFrameAllocator from crate::memory for test allocations
 
@@ -43,16 +43,23 @@ static TEST_EXECUTION_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub fn test_basic_paging() -> String {
     let _count = TEST_EXECUTION_COUNT.fetch_add(1, Ordering::Relaxed);
     let mut result = String::new();
-    
+
     println!("TEST_PAGING: Starting basic paging test\n");
-    println!("TEST_PAGING: PHYSICAL_MEMORY_OFFSET: {:#x}", crate::memory::physical_memory_offset());
-    
+    println!(
+        "TEST_PAGING: PHYSICAL_MEMORY_OFFSET: {:#x}",
+        crate::memory::physical_memory_offset()
+    );
+
     unsafe {
-        let mut frame_allocator: crate::memory::GlobalFrameAllocator = crate::memory::GlobalFrameAllocator;
-        
-    if let Some(frame) = frame_allocator.allocate_frame() {
-            println!("TEST_PAGING: Allocated physical frame: {:#x}\n", frame.start_address().as_u64());
-            
+        let mut frame_allocator: crate::memory::GlobalFrameAllocator =
+            crate::memory::GlobalFrameAllocator;
+
+        if let Some(frame) = frame_allocator.allocate_frame() {
+            println!(
+                "TEST_PAGING: Allocated physical frame: {:#x}\n",
+                frame.start_address().as_u64()
+            );
+
             // Use a KERNEL virtual address in the direct-mapped region. On some
             // environments the bootloader does identity mapping (physical offset
             // == 0). In that case mapping into the typical high-half region
@@ -61,19 +68,32 @@ pub fn test_basic_paging() -> String {
             // address for the test when necessary.
             let phys_offset = crate::memory::physical_memory_offset();
             let test_vaddr = if phys_offset == 0 {
-                println!("TEST_PAGING: physical_memory_offset == 0, using low virt (0x400000) for test");
+                println!(
+                    "TEST_PAGING: physical_memory_offset == 0, using low virt (0x400000) for test"
+                );
                 VirtAddr::new(0x400000)
             } else {
                 VirtAddr::new(0xffff_8800_0000_0000) // high kernel space
             };
             let page = Page::containing_address(test_vaddr);
-            
+
             let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
-            
+
             let mut mapper = crate::syscalls::handlers::memory::get_active_mapper();
-            println!("TEST_PAGING: Using mapper with CR3 P4 frame: {:#x}", x86_64::registers::control::Cr3::read().0.start_address().as_u64());
-            
-            println!("TEST_PAGING: Attempting to map page {:#x} -> phys {:#x} (flags: {:?})", page.start_address().as_u64(), frame.start_address().as_u64(), flags);
+            println!(
+                "TEST_PAGING: Using mapper with CR3 P4 frame: {:#x}",
+                x86_64::registers::control::Cr3::read()
+                    .0
+                    .start_address()
+                    .as_u64()
+            );
+
+            println!(
+                "TEST_PAGING: Attempting to map page {:#x} -> phys {:#x} (flags: {:?})",
+                page.start_address().as_u64(),
+                frame.start_address().as_u64(),
+                flags
+            );
             match mapper.map_to(page, frame, flags, &mut frame_allocator) {
                 Ok(tlb_flush) => {
                     tlb_flush.flush();
@@ -81,22 +101,32 @@ pub fn test_basic_paging() -> String {
 
                     // Show translation result
                     match mapper.translate_addr(test_vaddr) {
-                        Some(paddr) => println!("TEST_PAGING: translate_addr -> phys {:#x}\n", paddr.as_u64()),
+                        Some(paddr) => println!(
+                            "TEST_PAGING: translate_addr -> phys {:#x}\n",
+                            paddr.as_u64()
+                        ),
                         None => println!("TEST_PAGING: translate_addr -> None (not mapped)\n"),
                     }
-                    
+
                     // Now write to the mapped virtual address
                     // The mapper has already set up the translation
                     let test_ptr = test_vaddr.as_mut_ptr::<u64>();
-                    println!("TEST_PAGING: Writing to test_ptr virt {:#x} (ptr: {:?})\n", test_vaddr.as_u64(), test_ptr);
+                    println!(
+                        "TEST_PAGING: Writing to test_ptr virt {:#x} (ptr: {:?})\n",
+                        test_vaddr.as_u64(),
+                        test_ptr
+                    );
                     core::ptr::write(test_ptr, 0xdeadbeef);
-                    
+
                     // Read back
                     let read_val = core::ptr::read(test_ptr);
                     if read_val == 0xdeadbeef {
                         println!("TEST_PAGING: Successfully wrote and read from mapped page (val={:#x})\n", read_val);
                     } else {
-                        println!("TEST_PAGING: ✗ Value mismatch: expected 0xdeadbeef, got {:#x}\n", read_val);
+                        println!(
+                            "TEST_PAGING: ✗ Value mismatch: expected 0xdeadbeef, got {:#x}\n",
+                            read_val
+                        );
                     }
                 }
                 Err(e) => {
@@ -118,31 +148,31 @@ pub fn test_basic_paging() -> String {
             result.push_str("✗ Frame allocation failed\n");
         }
     }
-    
+
     result
 }
 
 pub fn test_process_creation() -> String {
     let mut result = String::new();
     result.push_str("Testing process creation...\n");
-    
-        let _pid = crate::syscalls::handlers::process::get_next_pid();
-        result.push_str("✓ Assigned PID\n");
-        result.push_str("✓ Process context storage available\n");
-    
+
+    let _pid = crate::syscalls::handlers::process::get_next_pid();
+    result.push_str("✓ Assigned PID\n");
+    result.push_str("✓ Process context storage available\n");
+
     result
 }
 
 pub fn test_memory_allocation() -> String {
     let mut result = String::new();
     result.push_str("Testing memory allocation...\n");
-    
+
     let test_size = 1024;
-    
+
     unsafe {
         use alloc::alloc::alloc;
         use alloc::alloc::dealloc;
-        
+
         let layout = ::core::alloc::Layout::from_size_align_unchecked(test_size, 16);
         let ptr = alloc(layout);
         if !ptr.is_null() {
@@ -153,7 +183,7 @@ pub fn test_memory_allocation() -> String {
             result.push_str("✗ Memory allocation failed\n");
         }
     }
-    
+
     result
 }
 
@@ -191,9 +221,9 @@ pub fn test_mmap_mapping() -> String {
 pub fn test_asm_simple_return() -> String {
     let mut result = String::new();
     result.push_str("Testing assembly execution (return 42)...\n");
-    
+
     use crate::asm_executor::{AsmExecutor, AsmProgram};
-    
+
     println!("TEST_ENV: calling AsmExecutor::execute for simple_return_42");
     match AsmExecutor::execute(AsmProgram::simple_return_42()) {
         Ok(ret_val) => {
@@ -210,16 +240,16 @@ pub fn test_asm_simple_return() -> String {
             result.push('\n');
         }
     }
-    
+
     result
 }
 
 pub fn test_asm_add() -> String {
     let mut result = String::new();
     result.push_str("Testing assembly execution (1 + 2)...\n");
-    
+
     use crate::asm_executor::{AsmExecutor, AsmProgram};
-    
+
     println!("TEST_ENV: calling AsmExecutor::execute for simple_add_1_2");
     match AsmExecutor::execute(AsmProgram::simple_add_1_2()) {
         Ok(ret_val) => {
@@ -236,7 +266,7 @@ pub fn test_asm_add() -> String {
             result.push('\n');
         }
     }
-    
+
     result
 }
 

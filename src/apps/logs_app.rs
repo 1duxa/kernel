@@ -11,12 +11,12 @@
 //! | Ctrl+L | Clear logs |
 
 use crate::app::{App, AppEvent, Arrow, FocusBlock};
-use crate::data_structures::vec::{String, Vec};
 use crate::devices::framebuffer::color::Color;
 use crate::devices::framebuffer::framebuffer::FramebufferWriter;
 use crate::terminal_v2::Terminal;
 use crate::ui::theme::Theme;
 use crate::ui::widgets::Rect;
+use alloc::{string::String, vec::Vec};
 use spin::Mutex;
 
 const MAX_LOG_LINES: usize = 500;
@@ -39,7 +39,7 @@ impl LogLevel {
             LogLevel::Error => Color::from_hex(0xF38BA8), // Red
         }
     }
-    
+
     pub fn prefix(&self) -> &'static str {
         match self {
             LogLevel::Debug => "[DBG]",
@@ -69,7 +69,7 @@ impl LogBuffer {
             dirty: true,
         }
     }
-    
+
     pub fn push(&mut self, level: LogLevel, message: String) {
         if self.entries.len() >= MAX_LOG_LINES {
             // Remove oldest entry
@@ -78,24 +78,24 @@ impl LogBuffer {
         self.entries.push(LogEntry { level, message });
         self.dirty = true;
     }
-    
+
     pub fn clear(&mut self) {
         self.entries.clear();
         self.dirty = true;
     }
-    
+
     pub fn entries(&self) -> &[LogEntry] {
         &self.entries
     }
-    
+
     pub fn is_dirty(&self) -> bool {
         self.dirty
     }
-    
+
     pub fn mark_clean(&mut self) {
         self.dirty = false;
     }
-    
+
     pub fn len(&self) -> usize {
         self.entries.len()
     }
@@ -167,28 +167,29 @@ impl LogsApp {
             last_entry_count: 0,
         }
     }
-    
+
     fn refresh_display(&mut self) {
         self.term.write("\x1b[H"); // Move cursor to top-left
-        
+
         let buffer = LOG_BUFFER.lock();
         let entries = buffer.entries();
         let (cols, rows) = self.term.size();
-        
+
         let total = entries.len();
         let visible_rows = rows.saturating_sub(2); // Leave room for header
-        
-        if self.scroll_offset + visible_rows >= self.last_entry_count || self.last_entry_count == 0 {
+
+        if self.scroll_offset + visible_rows >= self.last_entry_count || self.last_entry_count == 0
+        {
             self.scroll_offset = total.saturating_sub(visible_rows);
         }
-        
+
         self.last_entry_count = total;
-        
+
         // Header line
         self.term.write("\x1b[1;36m=== Kernel Logs ===\x1b[0m");
         // Clear to end of line
         self.term.write("\x1b[K\n");
-        
+
         // Status line
         let mut line_str = String::from("Lines: ");
         line_str.push_str(&format_usize(total));
@@ -196,21 +197,21 @@ impl LogsApp {
         line_str.push_str(&format_usize(self.scroll_offset));
         self.term.write(&line_str);
         self.term.write("\x1b[K\n"); // Clear to end of line
-        
+
         // visible entries
         let start = self.scroll_offset;
         let end = (start + visible_rows).min(total);
-        
+
         for i in start..end {
             let entry = &entries[i];
-            
+
             match entry.level {
                 LogLevel::Debug => self.term.write("\x1b[90m"), // Gray
                 LogLevel::Info => self.term.write("\x1b[36m"),  // Cyan
                 LogLevel::Warn => self.term.write("\x1b[33m"),  // Yellow
                 LogLevel::Error => self.term.write("\x1b[31m"), // Red
             }
-            
+
             self.term.write(entry.level.prefix());
             self.term.write(" ");
             // Truncate message to fit in terminal width
@@ -222,7 +223,7 @@ impl LogsApp {
             }
             self.term.write("\x1b[0m\x1b[K\n"); // Reset color + clear to EOL
         }
-        
+
         // Clear remaining lines if fewer entries than visible rows
         let lines_written = end - start;
         for _ in lines_written..visible_rows {
@@ -239,14 +240,16 @@ impl App for LogsApp {
         log(LogLevel::Debug, "Arrow keys to scroll logs");
         self.refresh_display();
     }
-    
+
     fn on_event(&mut self, event: AppEvent) {
         match event {
-            AppEvent::KeyPress { ch, ctrl, arrow, .. } => {
+            AppEvent::KeyPress {
+                ch, ctrl, arrow, ..
+            } => {
                 let (_, rows) = self.term.size();
                 let visible_rows = rows.saturating_sub(2);
                 let total = LOG_BUFFER.lock().len();
-                
+
                 if let Some(dir) = arrow {
                     match dir {
                         Arrow::Up => {
@@ -263,14 +266,14 @@ impl App for LogsApp {
                     }
                     return;
                 }
-                
+
                 if ctrl && ch == 'l' {
                     LOG_BUFFER.lock().clear();
                     self.scroll_offset = 0;
                     self.refresh_display();
                     return;
                 }
-                
+
                 match ch {
                     '[' => {
                         self.scroll_offset = self.scroll_offset.saturating_sub(visible_rows);
@@ -293,12 +296,12 @@ impl App for LogsApp {
             _ => {}
         }
     }
-    
+
     fn layout(&mut self, bounds: Rect) {
         self.bounds = bounds;
         self.block.rect = bounds;
     }
-    
+
     fn render(&mut self, fb: &mut FramebufferWriter, _theme: &Theme) {
         {
             let buffer = LOG_BUFFER.lock();
@@ -307,7 +310,7 @@ impl App for LogsApp {
                 self.refresh_display();
             }
         }
-        
+
         self.term.render_into_rect(
             fb,
             self.bounds.x,
@@ -316,15 +319,15 @@ impl App for LogsApp {
             self.bounds.h,
         );
     }
-    
+
     fn overlay(&mut self, fb: &mut FramebufferWriter, _theme: &Theme) {
         self.term.draw_cursor(fb, self.bounds.x, self.bounds.y);
     }
-    
+
     fn focus_blocks(&mut self) -> &mut [FocusBlock] {
         core::slice::from_mut(&mut self.block)
     }
-    
+
     fn bounds(&self) -> Rect {
         self.bounds
     }
@@ -334,22 +337,22 @@ fn format_usize(n: usize) -> String {
     if n == 0 {
         return String::from("0");
     }
-    
+
     let mut s = String::new();
     let mut num = n;
     let mut digits = [0u8; 20];
     let mut i = 0;
-    
+
     while num > 0 {
         digits[i] = (num % 10) as u8;
         num /= 10;
         i += 1;
     }
-    
+
     while i > 0 {
         i -= 1;
         s.push((b'0' + digits[i]) as char);
     }
-    
+
     s
 }
