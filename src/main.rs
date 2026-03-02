@@ -32,18 +32,16 @@ use uart_16550::SerialPort;
 mod app;
 mod apps;
 mod asm_executor;
-mod async_tasks;
 mod cmd_executor;
-pub mod core;
-mod data_structures;
+mod core;
 mod devices;
-pub mod executor;
+mod executor;
 mod memory;
 mod syscalls;
 mod task;
 mod terminal_logger;
 mod terminal_v2;
-pub mod test_env;
+mod test_env;
 mod ui;
 
 const BOOTLOADER_CONFIG: bootloader_api::BootloaderConfig = {
