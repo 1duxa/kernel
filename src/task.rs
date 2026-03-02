@@ -1,18 +1,19 @@
-//! Task Scheduling System
+//! # Task Scheduling System
 //!
-//! Provides a simple cooperative task scheduler with round-robin execution.
+//! Cooperative task scheduler with round-robin execution.
 //!
-//! # Task Lifecycle
-//! 1. Task is spawned with `scheduler.spawn(fn, name)`
+//! ## Task Lifecycle
+//!
+//! 1. Spawn task with `scheduler.spawn(fn, name)`
 //! 2. Scheduler calls task function each step
-//! 3. Task returns `TaskState::Ready` to continue, `Completed` to finish
+//! 3. Task returns `Ready` to continue or `Completed` to finish
 //! 4. Completed tasks are automatically removed
 //!
-//! # Task Context
-//! Each task has a `TaskContext` with:
-//! - Iteration counter
+//! ## Task Context
+//!
+//! Each task has a `TaskContext` containing:
+//! - Iteration counter for progress tracking
 //! - 256-byte data buffer for intermediate results
-//! - Current state
 
 use crate::data_structures::vec::{String, Vec};
 

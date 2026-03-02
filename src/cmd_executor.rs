@@ -1,39 +1,24 @@
 //! # Command Executor
 //!
-//! Provides command parsing and execution for the terminal application.
+//! Parses and executes shell commands for the terminal application.
 //!
-//! ## Available Commands
+//! ## Commands
 //!
-//! ### General
-//! - `help`: Display available commands
-//! - `echo <text>`: Echo text back
-//! - `info`: Show system information
-//! - `clear`: Clear terminal screen
-//! - `exit`: Exit command (placeholder)
-//!
-//! ### Testing
-//! - `test`: Run all tests
-//! - `test_paging`: Test virtual memory mapping
-//! - `test_process`: Test process creation
-//! - `test_memory`: Test heap allocation
-//! - `test_asm`: Run all assembly execution tests
-//! - `test_asm_return`: Test assembly return value
-//! - `test_asm_add`: Test assembly addition
-//!
-//! ### Task Management
-//! - `spawn <task>`: Spawn async task (counter, fibonacci, cpu, data)
-//! - `tasks`: List active tasks
-//! - `step_tasks`: Execute one step of all tasks
-//! - `run_all_tasks`: Run all tasks to completion
-//!
-//! ## Architecture
-//!
-//! Commands return `CommandResult`:
-//! - `Output(String)`: Successful output to display
-//! - `Error(String)`: Error message to display
-//! - `Exit`: Request to exit (handled by caller)
+//! | Command | Description |
+//! |---------|-------------|
+//! | `help` | Show available commands |
+//! | `echo <text>` | Echo text back |
+//! | `info` | System information |
+//! | `clear` | Clear terminal |
+//! | `test` | Run all tests |
+//! | `test_asm` | Run assembly tests |
+//! | `spawn <type>` | Spawn task (counter/fibonacci/cpu/data/work) |
+//! | `tasks` | List active tasks |
+//! | `step_tasks` | Run one task step |
+//! | `run_all_tasks` | Run all tasks to completion |
 
 use crate::data_structures::vec::{String, number_to_string};
+use crate::log_info;
 use core::str::SplitWhitespace;
 
 pub enum CommandResult {
@@ -155,36 +140,28 @@ impl CommandExecutor {
     fn spawn_task(mut parts: SplitWhitespace) -> CommandResult {
         let task_type = match parts.next() {
             Some(t) => t,
-            None => return CommandResult::Error(String::from("Usage: spawn <task_type>\nAvailable: counter, fibonacci, cpu, data, work")),
+            None => return CommandResult::Error(String::from("Usage: spawn <type>\nTypes: counter, fibonacci, cpu, data, work")),
         };
         
-        match task_type {
-            "counter" => {
-                crate::executor::spawn_task("counter", crate::async_tasks::counter_task);
-                CommandResult::Output(String::from("Spawned counter task"))
-            }
-            "fibonacci" => {
-                crate::executor::spawn_task("fibonacci", crate::async_tasks::fibonacci_task);
-                CommandResult::Output(String::from("Spawned fibonacci task"))
-            }
-            "cpu" => {
-                crate::executor::spawn_task("cpu_intensive", crate::async_tasks::cpu_intensive_task);
-                CommandResult::Output(String::from("Spawned CPU intensive task"))
-            }
-            "data" => {
-                crate::executor::spawn_task("data_transform", crate::async_tasks::data_transform_task);
-                CommandResult::Output(String::from("Spawned data transform task"))
-            }
-            "work" => {
-                crate::executor::spawn_task("work_sim", crate::async_tasks::work_simulation_task);
-                CommandResult::Output(String::from("Spawned work simulation task"))
-            }
+        let (name, task_fn): (&str, _) = match task_type {
+            "counter" => ("counter", crate::async_tasks::counter_task as fn(&mut _) -> _),
+            "fibonacci" => ("fibonacci", crate::async_tasks::fibonacci_task),
+            "cpu" => ("cpu_intensive", crate::async_tasks::cpu_intensive_task),
+            "data" => ("data_transform", crate::async_tasks::data_transform_task),
+            "work" => ("work_sim", crate::async_tasks::work_simulation_task),
             _ => {
-                let mut msg = String::from("Unknown task type: ");
+                let mut msg = String::from("Unknown task: ");
                 msg.push_str(task_type);
-                CommandResult::Error(msg)
+                return CommandResult::Error(msg);
             }
-        }
+        };
+        
+        crate::executor::spawn_task(name, task_fn);
+        log_info!("CMD: Spawned task '{}'", name);
+        let mut msg = String::from("Spawned ");
+        msg.push_str(name);
+        msg.push_str(" task");
+        CommandResult::Output(msg)
     }
     
     fn list_tasks() -> CommandResult {
@@ -195,23 +172,20 @@ impl CommandExecutor {
     }
     
     fn step_tasks() -> CommandResult {
-        let has_tasks = crate::executor::step_executor();
-        let result = if has_tasks {
-            "Executed one task step"
-        } else {
-            "No tasks to execute"
-        };
+        let executed = crate::executor::step_executor();
+        let result = if executed { "Executed one step" } else { "No tasks" };
         CommandResult::Output(String::from(result))
     }
     
     fn run_all_tasks() -> CommandResult {
-        let mut count = 0;
+        let mut count = 0u64;
         while crate::executor::step_executor() {
             count += 1;
         }
+        log_info!("CMD: Ran {} task steps", count);
         let mut msg = String::from("Executed ");
         msg.push_str(&number_to_string(count));
-        msg.push_str(" task steps");
+        msg.push_str(" steps");
         CommandResult::Output(msg)
     }
 }

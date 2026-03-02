@@ -70,7 +70,6 @@ pub struct SyscallContext {
     pub arg4: usize,
     pub arg5: usize,
 }
-// TODO: Those registers are not set up yet
 impl SyscallContext {
     /// Create from interrupt stack frame
     /// 

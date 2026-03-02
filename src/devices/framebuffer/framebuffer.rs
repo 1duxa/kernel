@@ -114,7 +114,6 @@ impl FramebufferWriter {
         }}
     }
 
-    /// Render dirty tiles into framebuffer with per-row hashing to skip unchanged rows
     pub fn render_frame(&mut self) {
         let fb_row_bytes = self.stride * self.bytes_per_pixel;
         let tiles = self.tiles_x * self.tiles_y;
@@ -129,7 +128,7 @@ impl FramebufferWriter {
 
             for y in sy..ey {
                 let row_in_tile = y - sy;
-                // compute simple rolling hash over nodes row slice within tile bounds
+                // rolling hash
                 let base = y * self.width + sx;
                 let mut h: u64 = 1469598103934665603; // FNV offset
                 for v in &self.nodes[base..base + (ex - sx)] {
@@ -138,18 +137,16 @@ impl FramebufferWriter {
                 }
                 let slot = self.tile_row_slot(tile_idx, row_in_tile);
                 if self.tile_row_hash[slot] == h {
-                    continue; // row unchanged, skip write
+                    continue; // row unchanged
                 }
                 self.tile_row_hash[slot] = h;
 
-                // write row to framebuffer in BGR or RGB depending on layout; existing code uses B,G,R order
                 let fb_row_off = y * fb_row_bytes;
                 let mut off = fb_row_off + sx * self.bytes_per_pixel;
                 for v in &self.nodes[base..base + (ex - sx)] {
                     let r = ((v >> 16) & 0xFF) as u8;
                     let g = ((v >> 8) & 0xFF) as u8;
                     let b = (v & 0xFF) as u8;
-                    // existing writer stores B,G,R then optional A
                     self.framebuffer[off] = b;
                     self.framebuffer[off + 1] = g;
                     self.framebuffer[off + 2] = r;
@@ -160,12 +157,10 @@ impl FramebufferWriter {
         }
     }
 
-    /// Fill entire screen with a color using the tiled renderer
     pub fn clear(&mut self, color: Color) {
         self.draw_rect(0, 0, self.width, self.height, color);
     }
 
-    /// Fill a rectangular region using tiled renderer
     pub fn fill_rect(&mut self, x: i32, y: i32, width: u32, height: u32, color: Color) {
         if width == 0 || height == 0 { return; }
         let x0 = x.max(0) as usize;
@@ -175,7 +170,6 @@ impl FramebufferWriter {
         self.draw_rect(x0, y0, x1, y1, color);
     }
 
-    /// Draw a single character using embedded-graphics path (kept for now)
     pub fn draw_char(&mut self, ch: char, x: i32, y: i32, style: &MonoTextStyle<Rgb888>) {
         let mut buf = [0u8; 4];
         let s = ch.encode_utf8(&mut buf);
@@ -184,7 +178,6 @@ impl FramebufferWriter {
             .ok();
     }
 
-    /// Draw a full string at the given pixel location (faster than repeated draw_char)
     pub fn draw_text(&mut self, text: &str, x: i32, y: i32, style: &MonoTextStyle<Rgb888>) {
         Text::new(text, Point::new(x, y), *style)
             .draw(self)
@@ -192,7 +185,6 @@ impl FramebufferWriter {
     }
 }
 
-// Implement DrawTarget for embedded-graphics by writing into nodes then blitting via render_frame()
 impl DrawTarget for FramebufferWriter {
     type Color = Rgb888;
     type Error = core::convert::Infallible;
@@ -223,7 +215,6 @@ pub static FRAMEBUFFER: Mutex<Option<FramebufferWriter>> = Mutex::new(None);
 pub fn init_framebuffer(info: &'static mut BootInfo) {
     let fb = FramebufferWriter::new(info);
     *FRAMEBUFFER.lock() = Some(fb);
-    // Perform an initial clear + render to ensure pixels reach the hardware early
     {
         let mut guard = FRAMEBUFFER.lock();
         if let Some(fb) = guard.as_mut() {

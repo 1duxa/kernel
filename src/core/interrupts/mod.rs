@@ -25,16 +25,14 @@
 //! x86_64::instructions::interrupts::enable();
 //! ```
 
-use crate::core::interrupts::{interrupts::init_idt, pic::PICS};
+use crate::core::interrupts::interrupts::init_idt;
 
-#[allow(unused)]
-pub mod pic;
 pub mod gdt;
 pub mod interrupts;
+pub mod pic;
 mod timer;
 
 pub fn init() {
     gdt::init();
     init_idt();
-    unsafe { PICS.lock().initialize() };
 }

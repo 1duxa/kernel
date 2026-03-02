@@ -5,7 +5,7 @@
 //! ## Supported Operations
 //!
 //! - `sys_read`: Read from file descriptor
-//! - `sys_write`: Write to file descriptor  
+//! - `sys_write`: Write to file descriptor
 //! - `sys_open`: Open file (not implemented)
 //! - `sys_close`: Close file descriptor (not implemented)
 //!
@@ -21,15 +21,15 @@
 //!
 //! Currently only stdout/stderr write is fully implemented.
 
-use crate::syscalls::dispatcher::{SyscallResult, SyscallError};
+use crate::syscalls::dispatcher::{SyscallError, SyscallResult};
 
 /// Read from file descriptor
-pub fn sys_read(fd: i32, buf: *mut u8, count: usize) -> SyscallResult {
+pub fn sys_read(fd: i32, buf: *mut u8, _count: usize) -> SyscallResult {
     // Validate arguments
     if buf.is_null() {
         return Err(SyscallError::InvalidArgument);
     }
-    
+
     match fd {
         0 => {
             // stdin - read from keyboard buffer
@@ -46,7 +46,7 @@ pub fn sys_write(fd: i32, buf: *const u8, count: usize) -> SyscallResult {
     if buf.is_null() {
         return Err(SyscallError::InvalidArgument);
     }
-    
+
     match fd {
         1 | 2 => {
             // stdout/stderr - write to serial/terminal
@@ -55,7 +55,7 @@ pub fn sys_write(fd: i32, buf: *const u8, count: usize) -> SyscallResult {
                 if let Ok(s) = core::str::from_utf8(slice) {
                     // Write to terminal
                     use core::fmt::Write;
-                    let _ = write!(crate::SERIAL.lock(), "{}", s);
+                    let _ = write!(crate::SERIAL, "{}", s);
                     Ok(count)
                 } else {
                     Err(SyscallError::InvalidArgument)
@@ -67,11 +67,11 @@ pub fn sys_write(fd: i32, buf: *const u8, count: usize) -> SyscallResult {
 }
 
 /// Open a file
-pub fn sys_open(path: *const u8, flags: usize, mode: usize) -> SyscallResult {
+pub fn sys_open(path: *const u8, _flags: usize, _mode: usize) -> SyscallResult {
     if path.is_null() {
         return Err(SyscallError::InvalidArgument);
     }
-    
+
     // TODO: Implement file system
     Err(SyscallError::NotImplemented)
 }
@@ -81,7 +81,7 @@ pub fn sys_close(fd: i32) -> SyscallResult {
     if fd < 0 {
         return Err(SyscallError::BadFileDescriptor);
     }
-    
+
     // TODO: Implement file descriptor table
     Err(SyscallError::NotImplemented)
 }

@@ -3,9 +3,11 @@
 //! This module contains drivers for various hardware devices:
 //! - PS/2 Keyboard (IRQ1)
 //! - PS/2 Mouse (IRQ12)
-
 pub mod ps2_keyboard;
 pub mod ps2_mouse;
 
-pub use ps2_keyboard::{KeyEvent, ScancodeDecoder, enqueue_scancode, dequeue_scancode};
-pub use ps2_mouse::{MouseEvent, MouseDecoder, poll_mouse_event, enqueue_mouse_byte};
+#[allow(unused)]
+pub use ps2_keyboard::{dequeue_scancode, enqueue_scancode, KeyEvent, ScancodeDecoder};
+
+#[allow(unused)]
+pub use ps2_mouse::{enqueue_mouse_byte, init, poll_mouse_event, MouseDecoder, MouseEvent};

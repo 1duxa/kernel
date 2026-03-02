@@ -18,7 +18,7 @@
 
 use x86_64::structures::paging::OffsetPageTable;
 
-// Return an active OffsetPageTable mapper rooted at CR3 as a convenience wrapper
+// Return an active OffsetPageTable mapper rooted at CR3 
 pub unsafe fn get_active_mapper() -> OffsetPageTable<'static> {
     crate::memory::active_page_table()
 }

@@ -24,7 +24,9 @@ use core::ptr::{self, NonNull};
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 #[allow(unused_imports)]
-use crate::memory::allocators::core::{align_up, align_down, AllocError, SpinLock, validate_region};
+use crate::memory::allocators::core::{
+    align_down, align_up, validate_region, AllocError, SpinLock,
+};
 
 // ============================================================================
 // 1. BUMP ALLOCATOR (Simple, fast, no deallocation)
@@ -32,7 +34,7 @@ use crate::memory::allocators::core::{align_up, align_down, AllocError, SpinLock
 
 /// A simple bump allocator that never frees memory.
 /// Best for: short-lived allocations, initialization, temporary buffers
-/// 
+///
 /// # Safety
 /// - Must call `init()` before use
 /// - Thread-safe through atomic operations
@@ -57,20 +59,21 @@ impl BumpAllocator {
     }
 
     /// Initialize the allocator with a memory region
-    /// 
+    ///
     /// # Safety
     /// - `heap_start` must point to valid, unused memory
     /// - `heap_size` must not exceed available memory
     /// - Must only be called once
     pub unsafe fn init(&self, heap_start: usize, heap_size: usize) -> Result<(), AllocError> {
         validate_region(heap_start, heap_size)?;
-        
+
         if self.initialized.swap(1, Ordering::SeqCst) != 0 {
             return Err(AllocError::InvalidAddress); // Already initialized
         }
 
         self.heap_start.store(heap_start, Ordering::Release);
-        self.heap_end.store(heap_start + heap_size, Ordering::Release);
+        self.heap_end
+            .store(heap_start + heap_size, Ordering::Release);
         self.next.store(heap_start, Ordering::Release);
         Ok(())
     }
@@ -80,7 +83,7 @@ impl BumpAllocator {
     }
 
     /// Reset the allocator, invalidating all previous allocations
-    /// 
+    ///
     /// # Safety
     /// - All previously allocated memory becomes invalid
     /// - Caller must ensure no references to allocated memory exist
@@ -128,7 +131,7 @@ unsafe impl GlobalAlloc for BumpAllocator {
         loop {
             let current = self.next.load(Ordering::Acquire);
             let aligned = align_up(current, align);
-            
+
             let new_next = match aligned.checked_add(size) {
                 Some(n) => n,
                 None => return ptr::null_mut(),
@@ -138,12 +141,11 @@ unsafe impl GlobalAlloc for BumpAllocator {
                 return ptr::null_mut();
             }
 
-            if self.next.compare_exchange_weak(
-                current,
-                new_next,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ).is_ok() {
+            if self
+                .next
+                .compare_exchange_weak(current, new_next, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
                 return aligned as *mut u8;
             }
         }
@@ -184,7 +186,7 @@ struct LinkedListAllocatorInner {
 
 /// A linked list allocator with proper synchronization
 /// Best for: general-purpose allocation when fragmentation is acceptable
-/// 
+///
 /// # Safety
 /// - Must call `init()` before use
 /// - Thread-safe through spin lock
@@ -208,7 +210,7 @@ impl LinkedListAllocator {
     }
 
     /// Initialize the allocator with a memory region
-    /// 
+    ///
     /// # Safety
     /// - `heap_start` must point to valid, unused memory
     /// - `heap_size` must be large enough for at least one ListNode
@@ -222,7 +224,7 @@ impl LinkedListAllocator {
 
         self.lock.with_lock(|| {
             let inner = &mut *self.inner.get();
-            
+
             if inner.initialized {
                 return Err(AllocError::InvalidAddress); // Already initialized
             }
@@ -241,9 +243,7 @@ impl LinkedListAllocator {
         align: usize,
     ) -> Result<usize, AllocError> {
         let alloc_start = align_up(node.start_addr(), align);
-        let alloc_end = alloc_start
-            .checked_add(size)
-            .ok_or(AllocError::Overflow)?;
+        let alloc_end = alloc_start.checked_add(size).ok_or(AllocError::Overflow)?;
 
         if alloc_end > node.end_addr() {
             return Err(AllocError::OutOfMemory);
@@ -268,14 +268,11 @@ unsafe impl GlobalAlloc for LinkedListAllocator {
             return ptr::null_mut();
         }
 
-        let required_size = align_up(
-            size.max(core::mem::size_of::<ListNode>()),
-            align
-        );
+        let required_size = align_up(size.max(core::mem::size_of::<ListNode>()), align);
 
         self.lock.with_lock(|| {
             let inner = &mut *self.inner.get();
-            
+
             if !inner.initialized {
                 return ptr::null_mut();
             }
@@ -284,12 +281,13 @@ unsafe impl GlobalAlloc for LinkedListAllocator {
 
             while let Some(mut node_ptr) = *current {
                 let node = node_ptr.as_mut();
-                
+
                 match Self::alloc_from_region(node, required_size, align) {
                     Ok(alloc_start) => {
                         // Remove or split the node
-                        if alloc_start == node.start_addr() && 
-                           alloc_start + required_size == node.end_addr() {
+                        if alloc_start == node.start_addr()
+                            && alloc_start + required_size == node.end_addr()
+                        {
                             // Exact fit - remove node
                             *current = node.next;
                         } else if alloc_start == node.start_addr() {
@@ -324,7 +322,7 @@ unsafe impl GlobalAlloc for LinkedListAllocator {
                     }
                 }
             }
-            
+
             ptr::null_mut()
         })
     }
@@ -336,12 +334,12 @@ unsafe impl GlobalAlloc for LinkedListAllocator {
 
         let size = align_up(
             layout.size().max(core::mem::size_of::<ListNode>()),
-            layout.align()
+            layout.align(),
         );
 
         self.lock.with_lock(|| {
             let inner = &mut *self.inner.get();
-            
+
             if !inner.initialized {
                 return;
             }
@@ -373,7 +371,7 @@ struct FixedSizeBlockAllocatorInner {
 
 /// Fixed-size block allocator with fallback
 /// Best for: frequent allocations of similar sizes
-/// 
+///
 /// # Safety
 /// - Must call `init()` before use
 /// - Thread-safe through spin lock
@@ -398,7 +396,7 @@ impl FixedSizeBlockAllocator {
     }
 
     /// Initialize the allocator with a memory region
-    /// 
+    ///
     /// # Safety
     /// - `heap_start` must point to valid, unused memory
     /// - `heap_size` must be sufficient for allocation
@@ -424,24 +422,22 @@ unsafe impl GlobalAlloc for FixedSizeBlockAllocator {
         match Self::list_index(&layout) {
             Some(idx) => self.lock.with_lock(|| {
                 let inner = &mut *self.inner.get();
-                
+
                 if let Some(mut node_ptr) = inner.list_heads[idx] {
                     let node = node_ptr.as_mut();
                     inner.list_heads[idx] = node.next;
                     node_ptr.as_ptr() as *mut u8
                 } else {
                     let block_size = BLOCK_SIZES[idx];
-                    let block_layout = Layout::from_size_align(block_size, block_size)
-                        .unwrap_or(layout);
+                    let block_layout =
+                        Layout::from_size_align(block_size, block_size).unwrap_or(layout);
                     inner.fallback.alloc(block_layout)
                 }
             }),
-            None => {
-                self.lock.with_lock(|| {
-                    let inner = &mut *self.inner.get();
-                    inner.fallback.alloc(layout)
-                })
-            }
+            None => self.lock.with_lock(|| {
+                let inner = &mut *self.inner.get();
+                inner.fallback.alloc(layout)
+            }),
         }
     }
 
@@ -473,7 +469,7 @@ unsafe impl GlobalAlloc for FixedSizeBlockAllocator {
 
 /// A stack allocator for LIFO allocation patterns
 /// Best for: temporary allocations with predictable lifetimes
-/// 
+///
 /// # Safety
 /// - Must call `init()` before use
 /// - Deallocations must happen in reverse order of allocations
@@ -498,14 +494,14 @@ impl StackAllocator {
     }
 
     /// Initialize the allocator with a memory region
-    /// 
+    ///
     /// # Safety
     /// - `heap_start` must point to valid, unused memory
     /// - `heap_size` must not exceed available memory
     /// - Must only be called once
     pub unsafe fn init(&self, heap_start: usize, heap_size: usize) -> Result<(), AllocError> {
         validate_region(heap_start, heap_size)?;
-        
+
         if self.initialized.swap(1, Ordering::SeqCst) != 0 {
             return Err(AllocError::InvalidAddress);
         }
@@ -517,7 +513,7 @@ impl StackAllocator {
     }
 
     /// Reset the allocator to initial state
-    /// 
+    ///
     /// # Safety
     /// - All previously allocated memory becomes invalid
     /// - Caller must ensure no references to allocated memory exist
@@ -553,7 +549,7 @@ unsafe impl GlobalAlloc for StackAllocator {
         loop {
             let current = self.top.load(Ordering::Acquire);
             let aligned = align_up(current, align);
-            
+
             let new_top = match aligned.checked_add(size) {
                 Some(n) => n,
                 None => return ptr::null_mut(),
@@ -563,12 +559,11 @@ unsafe impl GlobalAlloc for StackAllocator {
                 return ptr::null_mut();
             }
 
-            if self.top.compare_exchange_weak(
-                current,
-                new_top,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ).is_ok() {
+            if self
+                .top
+                .compare_exchange_weak(current, new_top, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
                 return aligned as *mut u8;
             }
         }
@@ -583,14 +578,11 @@ unsafe impl GlobalAlloc for StackAllocator {
         let addr = ptr as usize;
         let size = layout.size();
         let expected_top = addr.saturating_add(size);
-        
+
         // Try to pop this allocation off the stack
-        let _ = self.top.compare_exchange(
-            expected_top,
-            addr,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        );
+        _ = self
+            .top
+            .compare_exchange(expected_top, addr, Ordering::AcqRel, Ordering::Acquire);
         // If this fails, it means deallocations are out of order
         // In a production OS, you might want to panic or log this
     }
@@ -625,10 +617,10 @@ impl<const SIZE: usize, const ALIGN: usize> SlabAllocator<SIZE, ALIGN> {
 
     pub unsafe fn add_slab(&self, slab_start: usize, slab_size: usize) {
         let num_blocks = slab_size / SIZE;
-        
+
         self.lock.with_lock(|| {
             let inner = &mut *self.inner.get();
-            
+
             for i in 0..num_blocks {
                 let addr = slab_start + i * SIZE;
                 let node = &mut *(addr as *mut BlockNode);
@@ -644,10 +636,10 @@ unsafe impl<const SIZE: usize, const ALIGN: usize> GlobalAlloc for SlabAllocator
         if layout.size() > SIZE || layout.align() > ALIGN {
             return ptr::null_mut();
         }
-        
+
         self.lock.with_lock(|| {
             let inner = &mut *self.inner.get();
-            
+
             match inner.head {
                 Some(mut node_ptr) => {
                     let node = node_ptr.as_mut();
@@ -663,7 +655,7 @@ unsafe impl<const SIZE: usize, const ALIGN: usize> GlobalAlloc for SlabAllocator
         if ptr.is_null() {
             return;
         }
-        
+
         self.lock.with_lock(|| {
             let inner = &mut *self.inner.get();
             let node = &mut *(ptr as *mut BlockNode);
@@ -694,7 +686,7 @@ impl StackHeapAllocator {
     }
 
     /// Initialize with separate stack and heap regions
-    /// 
+    ///
     /// # Safety
     /// - Regions must not overlap
     /// - Both regions must point to valid, unused memory
@@ -706,13 +698,16 @@ impl StackHeapAllocator {
         heap_size: usize,
     ) -> Result<(), AllocError> {
         // Verify regions don't overlap
-        let stack_end = stack_start.checked_add(stack_size)
+        let stack_end = stack_start
+            .checked_add(stack_size)
             .ok_or(AllocError::Overflow)?;
-        let heap_end = heap_start.checked_add(heap_size)
+        let heap_end = heap_start
+            .checked_add(heap_size)
             .ok_or(AllocError::Overflow)?;
 
-        if (stack_start < heap_end && stack_end > heap_start) ||
-           (heap_start < stack_end && heap_end > stack_start) {
+        if (stack_start < heap_end && stack_end > heap_start)
+            || (heap_start < stack_end && heap_end > stack_start)
+        {
             return Err(AllocError::InvalidAddress);
         }
 

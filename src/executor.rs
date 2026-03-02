@@ -1,22 +1,17 @@
-//! Simple Cooperative Task Executor
+//! # Cooperative Task Executor
 //!
-//! This module provides a basic cooperative multitasking system.
-//! Tasks are non-preemptive and must explicitly yield by returning
-//! from their task function.
+//! A simple non-preemptive task scheduler. Tasks must explicitly yield
+//! by returning from their task function.
 //!
-//! # Usage
+//! ## Usage
+//!
 //! ```ignore
-//! use crate::executor::{spawn_task, step_executor};
-//! use crate::async_tasks::counter_task;
-//!
-//! // Spawn a task
 //! spawn_task("counter", counter_task);
-//!
-//! // Run one step of all ready tasks
 //! while step_executor() {}
 //! ```
 
 use crate::task::{TaskScheduler, TaskFn};
+use crate::log_info;
 use spin::Mutex;
 
 pub static EXECUTOR: Mutex<SimpleExecutor> = Mutex::new(SimpleExecutor::new());
@@ -35,12 +30,14 @@ impl SimpleExecutor {
     }
 
     pub fn spawn(&mut self, name: &str, task_fn: TaskFn) -> usize {
-        self.scheduler.spawn(task_fn, name)
+        let id = self.scheduler.spawn(task_fn, name);
+        log_info!("Task spawned: {} (id={})", name, id);
+        id
     }
 
     pub fn step(&mut self) -> bool {
         match self.scheduler.step() {
-            Some(_) => {
+            Some(_task_id) => {
                 self.steps_completed += 1;
                 true
             }
@@ -49,7 +46,12 @@ impl SimpleExecutor {
     }
 
     pub fn run_all(&mut self) {
+        let start_steps = self.steps_completed;
         while self.step() {}
+        let total = self.steps_completed - start_steps;
+        if total > 0 {
+            log_info!("Executor: ran {} steps", total);
+        }
     }
 
     pub fn task_count(&self) -> usize {

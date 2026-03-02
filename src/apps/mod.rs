@@ -5,6 +5,7 @@
 //! ## Available Apps
 //!
 //! - `terminal_app`: Interactive terminal/shell application
+//! - `logs_app`: Kernel log viewer application
 //!
 //! ## Architecture
 //!
@@ -15,4 +16,5 @@
 //! - Layout and rendering
 //! - Focus management
 
+pub mod logs_app;
 pub mod terminal_app;

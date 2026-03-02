@@ -225,24 +225,41 @@ pub fn is_initialized() -> bool {
 
 /// Wait for PS/2 controller input buffer to be ready (can write)
 fn wait_for_write() -> Result<(), &'static str> {
-    for _ in 0..100_000 {
+    for _ in 0..100_000 {  // Reduced from 1_000_000
         let status = unsafe { Port::<u8>::new(0x64).read() };
         if (status & 0x02) == 0 {
             return Ok(());
         }
+        core::hint::spin_loop();
     }
     Err("PS/2 controller write timeout")
 }
 
 /// Wait for PS/2 controller output buffer to have data (can read)
 fn wait_for_read() -> Result<(), &'static str> {
-    for _ in 0..100_000 {
+    for _ in 0..100_000 {  // Reduced from 1_000_000
         let status = unsafe { Port::<u8>::new(0x64).read() };
         if (status & 0x01) != 0 {
             return Ok(());
         }
+        core::hint::spin_loop();
     }
     Err("PS/2 controller read timeout")
+}
+
+/// Flush any pending data from PS/2 controller
+fn flush_output_buffer() {
+    for _ in 0..100 {
+        let status = unsafe { Port::<u8>::new(0x64).read() };
+        if (status & 0x01) == 0 {
+            break;
+        }
+        // Read and discard
+        let _ = unsafe { Port::<u8>::new(0x60).read() };
+        for _ in 0..100 {
+            core::hint::spin_loop();
+        }
+    }
 }
 
 /// Send command to PS/2 controller
@@ -271,12 +288,21 @@ fn send_mouse_command(cmd: u8) -> Result<u8, &'static str> {
     send_controller_command(0xD4)?;
     send_data(cmd)?;
     
-    // Wait for ACK (0xFA)
-    let response = read_data()?;
-    if response != 0xFA {
-        return Err("Mouse did not ACK command");
+    // Wait for response with retry
+    for _ in 0..3 {
+        if let Ok(response) = read_data() {
+            if response == 0xFA {
+                return Ok(response);
+            }
+            // Resend if not ACK
+            if response == 0xFE {
+                send_controller_command(0xD4)?;
+                send_data(cmd)?;
+                continue;
+            }
+        }
     }
-    Ok(response)
+    Err("Mouse did not ACK command")
 }
 
 /// Initialize PS/2 mouse
@@ -284,8 +310,16 @@ fn send_mouse_command(cmd: u8) -> Result<u8, &'static str> {
 /// This function enables the auxiliary (mouse) port on the PS/2 controller
 /// and configures the mouse to start sending movement data.
 pub fn init() -> Result<(), &'static str> {
+    // Flush any pending data first
+    flush_output_buffer();
+    
     // Step 1: Enable auxiliary device (mouse port)
     send_controller_command(0xA8)?;
+    
+    // Small delay after enabling
+    for _ in 0..10000 {
+        core::hint::spin_loop();
+    }
     
     // Step 2: Read controller configuration byte
     send_controller_command(0x20)?;
@@ -296,8 +330,17 @@ pub fn init() -> Result<(), &'static str> {
     send_controller_command(0x60)?;
     send_data(new_config)?;
     
+    // Small delay
+    for _ in 0..10000 {
+        core::hint::spin_loop();
+    }
+    
     // Step 4: Set mouse defaults
-    send_mouse_command(0xF6)?; // Set defaults
+    if send_mouse_command(0xF6).is_err() {
+        // Try once more
+        flush_output_buffer();
+        send_mouse_command(0xF6)?;
+    }
     
     // Step 5: Enable mouse data reporting
     send_mouse_command(0xF4)?; // Enable

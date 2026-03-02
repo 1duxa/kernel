@@ -1,34 +1,15 @@
 //! # Terminal Application
 //!
-//! Interactive terminal/shell application providing a command-line
-//! interface for the kernel.
+//! Interactive shell with command execution and multi-line input.
 //!
-//! ## Features
+//! ## Shortcuts
 //!
-//! - Command input and execution
-//! - Multi-line input support (Enter adds line, Shift+Enter executes)
-//! - Backspace handling with boundary protection
-//! - Clear screen (Ctrl+L)
-//! - Mouse event display
-//!
-//! ## Commands
-//!
-//! Commands are executed via `CommandExecutor`. See `cmd_executor`
-//! module for available commands.
-//!
-//! ## Keyboard Shortcuts
-//!
-//! - `Enter`: New line
-//! - `Shift+Enter`: Execute command
-//! - `Ctrl+L`: Clear screen
-//! - `Backspace`: Delete character (respects prompt boundary)
-//!
-//! ## Integration
-//!
-//! The terminal app wraps a `Terminal` widget and manages:
-//! - Input buffering in `current_line`
-//! - Prompt display and tracking
-//! - Command execution results
+//! | Key | Action |
+//! |-----|--------|
+//! | Enter | New line |
+//! | Shift+Enter | Execute command |
+//! | Ctrl+L | Clear screen |
+//! | Backspace | Delete character |
 
 use crate::app::{App, AppEvent, FocusBlock};
 use crate::cmd_executor::CommandExecutor;
@@ -90,61 +71,85 @@ impl TerminalApp {
 
 impl App for TerminalApp {
     fn init(&mut self) {
+        self.term.write("DuxOS Terminal v2\n");
+        self.term.write("Type 'help' for available commands\n");
+        self.term.write("Shortcuts: Alt+Tab to switch apps, Ctrl+Arrows for navigation\n\n");
         self.term.write("> ");
         self.term.set_prompt_start();
     }
+    
     fn on_event(&mut self, event: AppEvent) {
-        if let AppEvent::Mouse(_me) = event {
-            // For now, just indicate a mouse event was received
-            self.term.write("[mouse]");
-            return;
-        }
-        if let AppEvent::KeyPress {
-            ch,
-            ctrl,
-            alt: _,
-            shift,
-            arrow,
-        } = event
-        {
-            if arrow.is_some() {
-                return;
+        match event {
+            AppEvent::Mouse(me) => {
+                // Only show mouse info on clicks, not movement
+                if me.buttons != 0 {
+                    let (mx, my) = crate::devices::mouse_cursor::get_position();
+                    self.term.write("[click@");
+                    self.term.write(&format_num(mx));
+                    self.term.write(",");
+                    self.term.write(&format_num(my));
+                    self.term.write("]");
+                }
             }
-            if ctrl && ch == 'l' {
-                self.term.clear();
-                self.term.write("> ");
-                self.term.set_prompt_start();
-                self.current_line.clear();
-                return;
-            }
-            if ch == '\n' {
-                if shift {
-                    self.execute_command();
+            AppEvent::KeyPress {
+                ch,
+                ctrl,
+                alt: _,
+                shift,
+                arrow,
+            } => {
+                // Ignore arrow keys (handled by navigation)
+                if arrow.is_some() {
+                    return;
+                }
+                
+                // Ctrl+L: clear screen
+                if ctrl && ch == 'l' {
+                    self.term.clear();
+                    self.term.write("> ");
                     self.term.set_prompt_start();
-                } else {
-                    self.term.write("\n");
-                    self.current_line.push('\n');
+                    self.current_line.clear();
+                    return;
                 }
-                return;
-            }
-            if ch == '\x08' {
-                self.term.write("\x08");
-                if !self.current_line.is_empty() {
-                    self.current_line.pop();
+                
+                // Enter key
+                if ch == '\n' {
+                    if shift {
+                        // Shift+Enter: execute command
+                        self.execute_command();
+                    } else {
+                        // Enter: new line in multi-line input
+                        self.term.write("\n");
+                        self.current_line.push('\n');
+                    }
+                    return;
                 }
-                return;
+                
+                // Backspace
+                if ch == '\x08' {
+                    if !self.current_line.is_empty() {
+                        self.term.write("\x08");
+                        self.current_line.pop();
+                    }
+                    return;
+                }
+                
+                // Regular character
+                if !ch.is_control() {
+                    let mut buf = [0u8; 4];
+                    self.term.write(ch.encode_utf8(&mut buf));
+                    self.current_line.push(ch);
+                }
             }
-            if !ch.is_control() {
-                let mut buf = [0u8; 4];
-                self.term.write(ch.encode_utf8(&mut buf));
-                self.current_line.push(ch);
-            }
+            AppEvent::Tick => {}
         }
     }
+    
     fn layout(&mut self, bounds: Rect) {
         self.bounds = bounds;
         self.block.rect = bounds;
     }
+    
     fn render(&mut self, fb: &mut FramebufferWriter, _theme: &Theme) {
         self.term.render_into_rect(
             fb,
@@ -154,13 +159,49 @@ impl App for TerminalApp {
             self.bounds.h,
         );
     }
+    
     fn overlay(&mut self, fb: &mut FramebufferWriter, _theme: &Theme) {
         self.term.draw_cursor(fb, self.bounds.x, self.bounds.y);
     }
+    
     fn focus_blocks(&mut self) -> &mut [FocusBlock] {
         core::slice::from_mut(&mut self.block)
     }
+    
     fn bounds(&self) -> Rect {
         self.bounds
     }
+}
+
+/// Simple number to string formatting (no alloc formatting)
+fn format_num(n: i32) -> String {
+    if n == 0 {
+        return String::from("0");
+    }
+    
+    let mut s = String::new();
+    let mut num = n;
+    let negative = num < 0;
+    if negative {
+        num = -num;
+    }
+    
+    let mut digits = [0u8; 12];
+    let mut i = 0;
+    while num > 0 {
+        digits[i] = (num % 10) as u8;
+        num /= 10;
+        i += 1;
+    }
+    
+    if negative {
+        s.push('-');
+    }
+    
+    while i > 0 {
+        i -= 1;
+        s.push((b'0' + digits[i]) as char);
+    }
+    
+    s
 }

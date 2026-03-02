@@ -344,6 +344,34 @@ impl Terminal {
                     self.clear();
                 }
             }
+            'K' => {
+                // Clear line: 0 = cursor to end, 1 = start to cursor, 2 = entire line
+                let mode = params.first().copied().unwrap_or(0);
+                let line_idx = self.line_index(self.cursor_y);
+                let blank = Cell::blank(self.fg, self.bg);
+                match mode {
+                    0 => {
+                        // Clear from cursor to end of line
+                        for x in self.cursor_x..self.width {
+                            self.lines[line_idx].cells[x] = blank;
+                        }
+                    }
+                    1 => {
+                        // Clear from start to cursor
+                        for x in 0..=self.cursor_x.min(self.width - 1) {
+                            self.lines[line_idx].cells[x] = blank;
+                        }
+                    }
+                    2 => {
+                        // Clear entire line
+                        for x in 0..self.width {
+                            self.lines[line_idx].cells[x] = blank;
+                        }
+                    }
+                    _ => {}
+                }
+                self.lines[line_idx].dirty = true;
+            }
             'm' => {
                 if params.is_empty() {
                     self.fg = self.default_fg;

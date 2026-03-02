@@ -98,7 +98,6 @@ impl ScancodeDecoder {
     }
 
     pub fn process_scancode(&mut self, scancode: u8) -> Option<KeyEvent> {
-        // If the scancode is the extended prefix, set flag and wait for next byte.
         if scancode == 0xE0 {
             self.is_extended = true;
             return None;
@@ -107,12 +106,9 @@ impl ScancodeDecoder {
         let is_release = scancode & 0x80 != 0;
         let key_code = scancode & 0x7F;
 
-        // If we've seen the extended prefix, handle extended keys (arrows, etc.)
         if self.is_extended {
-            // consume the extended prefix state regardless of what follows
             self.is_extended = false;
 
-            // ignore release events for arrows (optional: you could track key up if you want)
             if is_release {
                 return None;
             }
@@ -158,15 +154,12 @@ impl ScancodeDecoder {
                         arrow_direction: Some(crate::app::Arrow::Right),
                     });
                 }
-                // you can add more extended keys here (home/end/insert/etc.)
                 _ => {
-                    // unknown extended — ignore
                     return None;
                 }
             }
         }
 
-        // Handle common modifier keys (non-extended)
         match key_code {
             0x2A | 0x36 => {
                 // Left/Right Shift
@@ -186,14 +179,12 @@ impl ScancodeDecoder {
             _ => {}
         }
 
-        // For regular keys: if this is a key release, ignore it
         if is_release {
             return None;
         }
 
         let ch = self.scancode_to_char(key_code);
 
-        // return normal character events (not arrows)
         ch.map(|c| KeyEvent {
             character: c,
             ctrl: self.ctrl_pressed,
@@ -205,7 +196,6 @@ impl ScancodeDecoder {
     }
 
     fn scancode_to_char(&self, scancode: u8) -> Option<char> {
-        // (keep your existing mapping - unchanged)
         let ch = match scancode {
             0x02..=0x0B => {
                 // Number row: 1-9, 0
@@ -251,6 +241,20 @@ impl ScancodeDecoder {
             0x1C => '\n', // Enter
             0x0E => '\x08', // Backspace
             0x0F => '\t', // Tab
+
+            // Function keys F1-F10 mapped to special chars
+            0x3B => '\x11', // F1 -> DC1 (Ctrl+Q)
+            0x3C => '\x12', // F2 -> DC2 (Ctrl+R)
+            0x3D => '\x13', // F3 -> DC3 (Ctrl+S)
+            0x3E => '\x14', // F4 -> DC4 (Ctrl+T)
+            0x3F => '\x15', // F5
+            0x40 => '\x16', // F6
+            0x41 => '\x17', // F7
+            0x42 => '\x18', // F8
+            0x43 => '\x19', // F9
+            0x44 => '\x1A', // F10
+            0x57 => '\x1B', // F11 -> ESC
+            0x58 => '\x1C', // F12
 
             0x1A => if self.shift_pressed { '{' } else { '[' },
             0x1B => if self.shift_pressed { '}' } else { ']' },

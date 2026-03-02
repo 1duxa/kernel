@@ -25,25 +25,23 @@
 //! 2. Set segment registers (CS, DS, ES, SS)
 //! 3. Load the TSS
 
-// gdt.rs
 use spin::Lazy;
 use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector};
 use x86_64::structures::tss::TaskStateSegment;
 use x86_64::VirtAddr;
 
 pub const DOUBLE_FAULT_IST_INDEX: u16 = 0;
-
 static mut DOUBLE_FAULT_STACK: [u8; 4096] = [0; 4096];
 
 static TSS: Lazy<TaskStateSegment> = Lazy::new(|| {
     let mut tss = TaskStateSegment::new();
-    
+
     tss.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX as usize] = {
         let stack_start = unsafe { DOUBLE_FAULT_STACK.as_ptr() as u64 };
         let stack_end = stack_start + 4096;
         VirtAddr::new(stack_end)
     };
-    
+
     tss
 });
 
@@ -55,11 +53,11 @@ struct Selectors {
 
 static GDT: Lazy<(GlobalDescriptorTable, Selectors)> = Lazy::new(|| {
     let mut gdt = GlobalDescriptorTable::new();
-    
+
     let code_selector = gdt.append(Descriptor::kernel_code_segment());
     let data_selector = gdt.append(Descriptor::kernel_data_segment());
     let tss_selector = gdt.append(Descriptor::tss_segment(&TSS));
-    
+
     (
         gdt,
         Selectors {
@@ -73,16 +71,15 @@ static GDT: Lazy<(GlobalDescriptorTable, Selectors)> = Lazy::new(|| {
 pub fn init() {
     let (ref gdt, ref selectors) = *GDT;
     gdt.load();
-    
+
     unsafe {
-        use x86_64::instructions::segmentation::{CS, DS, ES, SS, Segment};
-        
+        use x86_64::instructions::segmentation::{Segment, CS, DS, ES, SS};
+
         CS::set_reg(selectors.code_selector);
-        
         DS::set_reg(selectors.data_selector);
         ES::set_reg(selectors.data_selector);
         SS::set_reg(selectors.data_selector);
-        
+
         x86_64::instructions::tables::load_tss(selectors.tss_selector);
     }
 }

@@ -1,47 +1,13 @@
 //! # Application Framework
 //!
-//! This module provides a simple application framework for the kernel,
-//! enabling a GUI-like application model with events, focus management,
-//! and rendering.
-//!
-//! ## Architecture
-//!
-//! ```text
-//! ┌─────────────────────────────────────────────┐
-//! │                  AppHost                     │
-//! │  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
-//! │  │  App 1   │  │  App 2   │  │  App N   │  │
-//! │  │ (active) │  │          │  │          │  │
-//! │  └──────────┘  └──────────┘  └──────────┘  │
-//! │       │                                     │
-//! │       ▼                                     │
-//! │  ┌──────────────────────────────────────┐  │
-//! │  │         Focus Blocks                  │  │
-//! │  │  [Button] [Input] [List] [Button]    │  │
-//! │  └──────────────────────────────────────┘  │
-//! └─────────────────────────────────────────────┘
-//! ```
+//! GUI-like application model with event handling and focus management.
 //!
 //! ## Components
 //!
-//! - **App trait**: Interface all applications must implement
-//! - **AppHost**: Manages multiple apps, handles events and focus
-//! - **AppEvent**: Events dispatched to applications
-//! - **FocusBlock**: Focusable UI regions within an app
-//!
-//! ## Event Flow
-//!
-//! 1. Input events arrive (keyboard, mouse)
-//! 2. AppHost receives event
-//! 3. Focus navigation (Ctrl/Alt + arrows) handled by host
-//! 4. Other events dispatched to active app
-//! 5. App updates state and re-renders
-//!
-//! ## Focus Navigation
-//!
-//! Applications define focusable regions via `focus_blocks()`.
-//! Users navigate with Ctrl/Alt + arrow keys. The focus ring
-//! is drawn around the currently focused block.
+//! - `App` trait: Interface for applications
+//! - `AppHost`: Manages multiple apps and dispatches events
+//! - `AppEvent`: Keyboard, mouse, and tick events
+//! - `FocusBlock`: Focusable UI regions for navigation
 
 use crate::devices::framebuffer::color::Color;
 use crate::devices::drivers::MouseEvent;
@@ -103,21 +69,110 @@ impl AppHost {
             focus_block_id: 1,
         }
     }
+    
     pub fn register_app(&mut self, app: Box<dyn App>) {
         if self.apps.is_empty() {
             self.focus_block_id = 1;
         }
         self.apps.push(app);
     }
+    
     pub fn app_mut(&mut self, idx: usize) -> &mut dyn App {
         &mut *self.apps[idx]
     }
+    
     pub fn layout_app(&mut self, idx: usize, bounds: Rect) {
         self.apps[idx].layout(bounds);
     }
+    
     pub fn render_app_once(&mut self, idx: usize, fb: &mut FramebufferWriter, theme: &Theme) {
         self.apps[idx].render(fb, theme);
     }
+
+    /// Render the currently focused app
+    pub fn render_focused_app(&mut self, fb: &mut FramebufferWriter, theme: &Theme) {
+        if self.focus_app < self.apps.len() {
+            self.apps[self.focus_app].render(fb, theme);
+            self.apps[self.focus_app].overlay(fb, theme);
+            
+            // Draw focus ring
+            let blocks = self.apps[self.focus_app].focus_blocks().to_vec();
+            if let Some(b) = blocks.iter().find(|b| b.id == self.focus_block_id) {
+                navigation::draw_focus_ring(fb, b.rect, Color::from_hex(0xFF6B6B));
+            }
+        }
+    }
+    
+    /// Render all apps (for split-screen layout)
+    pub fn render_all_apps(&mut self, fb: &mut FramebufferWriter, theme: &Theme) {
+        for i in 0..self.apps.len() {
+            self.apps[i].render(fb, theme);
+        }
+        // Draw focus ring on focused app
+        if self.focus_app < self.apps.len() {
+            self.apps[self.focus_app].overlay(fb, theme);
+            let blocks = self.apps[self.focus_app].focus_blocks().to_vec();
+            if let Some(b) = blocks.iter().find(|b| b.id == self.focus_block_id) {
+                navigation::draw_focus_ring(fb, b.rect, Color::from_hex(0xFF6B6B));
+            }
+        }
+    }
+
+    /// Cycle to next app (Alt+Tab)
+    pub fn cycle_focus(&mut self) {
+        if self.apps.is_empty() {
+            return;
+        }
+        self.focus_app = (self.focus_app + 1) % self.apps.len();
+        // Reset focus block to first block in new app
+        let blocks = self.apps[self.focus_app].focus_blocks();
+        if !blocks.is_empty() {
+            self.focus_block_id = blocks[0].id;
+        }
+    }
+
+    /// Switch to specific app by index
+    pub fn switch_to_app(&mut self, idx: usize) -> bool {
+        if idx < self.apps.len() {
+            self.focus_app = idx;
+            let blocks = self.apps[self.focus_app].focus_blocks();
+            if !blocks.is_empty() {
+                self.focus_block_id = blocks[0].id;
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Handle mouse click - check if it's on a different app
+    pub fn handle_mouse_click(&mut self, x: i32, y: i32) {
+        for (idx, app) in self.apps.iter().enumerate() {
+            let bounds = app.bounds();
+            if x >= bounds.x && x < bounds.x + bounds.w as i32 &&
+               y >= bounds.y && y < bounds.y + bounds.h as i32 {
+                if idx != self.focus_app {
+                    self.focus_app = idx;
+                    let blocks = self.apps[self.focus_app].focus_blocks();
+                    if !blocks.is_empty() {
+                        self.focus_block_id = blocks[0].id;
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    /// Get number of registered apps
+    pub fn app_count(&self) -> usize {
+        self.apps.len()
+    }
+
+    /// Get currently focused app index
+    pub fn focused_app_index(&self) -> usize {
+        self.focus_app
+    }
+
     pub fn dispatch_event(
         &mut self,
         fb: &mut FramebufferWriter,
@@ -125,6 +180,10 @@ impl AppHost {
         event: AppEvent,
         accent: Color,
     ) {
+        if self.apps.is_empty() {
+            return;
+        }
+        
         match event {
             AppEvent::KeyPress {
                 ch: _,

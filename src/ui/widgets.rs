@@ -141,14 +141,3 @@ impl<'a> Widget for VStack<'a> {
     fn render(&mut self, fb: &mut FramebufferWriter, theme: &Theme) { for it in self.children.iter_mut() { it.child.render(fb, theme); } }
 }
 
-use crate::terminal::Terminal;
-pub struct TerminalWidget<'a> { pub rect: Rect, pub term: &'a mut Terminal }
-impl<'a> TerminalWidget<'a> { pub fn new(term: &'a mut Terminal) -> Self { Self { rect: Rect::default(), term } } }
-impl<'a> Widget for TerminalWidget<'a> {
-    fn layout(&mut self, bounds: Rect) -> Rect { self.rect = bounds; self.rect }
-    fn render(&mut self, fb: &mut FramebufferWriter, _theme: &Theme) {
-        self.term.render_into_rect(fb, self.rect.x, self.rect.y, self.rect.w, self.rect.h);
-        // Note: cursor is drawn as overlay in main loop after render_frame to avoid artifacts
-    }
-}
-
