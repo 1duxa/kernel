@@ -15,8 +15,7 @@ use crate::app::{App, AppEvent, FocusBlock};
 use crate::cmd_executor::CommandExecutor;
 use crate::devices::framebuffer::framebuffer::FramebufferWriter;
 use crate::terminal_v2::Terminal;
-use crate::ui::theme::Theme;
-use crate::ui::widgets::Rect;
+use crate::ui_provider::{shape::Rect, theme::Theme};
 use alloc::string::String;
 
 pub struct TerminalApp {

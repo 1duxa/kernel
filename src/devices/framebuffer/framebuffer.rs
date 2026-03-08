@@ -1,5 +1,5 @@
 //! Framebuffer writer using embedded-graphics + tiled renderer
-use super::color::Color;
+use crate::ui_provider::color::Color;
 use alloc::vec;
 use alloc::vec::Vec;
 use bootloader_api::BootInfo;

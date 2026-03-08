@@ -15,31 +15,35 @@
 extern crate alloc;
 extern crate rlibc;
 
-use crate::app::{AppEvent, AppHost};
-use crate::apps::logs_app::LogsApp;
-use crate::apps::terminal_app::TerminalApp;
-use crate::devices::drivers::{ps2_keyboard, ps2_mouse};
-use crate::devices::framebuffer::framebuffer::{init_framebuffer, FRAMEBUFFER};
-use crate::devices::framebuffer::shape::Rect;
-use crate::devices::mouse_cursor;
-use crate::terminal_v2::Terminal;
+use crate::{
+    app::{AppEvent, AppHost},
+    apps::{logs_app::LogsApp, terminal_app::TerminalApp},
+    devices::{
+        drivers::{ps2_keyboard, ps2_mouse},
+        framebuffer::framebuffer::{init_framebuffer, FRAMEBUFFER},
+        mouse_cursor,
+    },
+    terminal_v2::Terminal,
+    ui_provider::{shape::Rect, theme::Theme},
+};
 
-use crate::ui::Theme;
 use alloc::boxed::Box;
 use bootloader_api::{entry_point, BootInfo};
 use uart_16550::SerialPort;
+use x86_64::registers::control::Cr3;
 
 mod app;
 mod apps;
 mod asm_executor;
 mod cmd_executor;
-mod core;
 mod devices;
+mod kcore;
 mod memory;
 mod syscalls;
 mod terminal_logger;
 mod terminal_v2;
 mod test_env;
+mod ui_provider;
 
 const BOOTLOADER_CONFIG: bootloader_api::BootloaderConfig = {
     let mut config = bootloader_api::BootloaderConfig::new_default();
@@ -86,16 +90,18 @@ fn alloc_error(layout: ::alloc::alloc::Layout) -> ! {
 }
 
 pub fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
+    use core::arch::asm;
     unsafe {
         if let Err(e) = memory::init(boot_info) {
             println!("PANIC: Failed to init memory: {}", e);
             loop_arch_mm();
         }
     }
-
-    let _ = core::kernel::init_kernel();
+    let _ = kcore::kernel::init_kernel();
+    println!("4");
     init_framebuffer(boot_info);
 
+    println!("5");
     let theme = Theme::dark_modern();
     let (fb_width, fb_height) = {
         let guard = FRAMEBUFFER.lock();
@@ -103,6 +109,7 @@ pub fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         (fb.width, fb.height)
     };
 
+    println!("6");
     let log_cols = fb_width / 10;
     let log_rows = 4;
     terminal_logger::init(log_cols, log_rows, &theme);
@@ -132,9 +139,6 @@ pub fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         fb.render_frame();
         host.app_mut(0).overlay(fb, &theme);
     }
-
-    _ = crate::test_env::test_asm_simple_return();
-    _ = crate::test_env::test_asm_add();
 
     let mut decoder = ps2_keyboard::ScancodeDecoder::new();
 
@@ -260,7 +264,7 @@ pub fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                 let fb = guard.as_mut().unwrap();
 
                 if left_clicked {
-                    host.handle_mouse_click(mx, my);
+                    host.handle_mouse_click(mx as usize, my as usize);
                 }
 
                 host.dispatch_event(fb, &theme, event, theme.accent);

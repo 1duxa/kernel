@@ -28,9 +28,8 @@
 //! block to indicate keyboard focus.
 
 use super::{Arrow, FocusBlock};
-use crate::devices::framebuffer::color::Color;
 use crate::devices::framebuffer::framebuffer::FramebufferWriter;
-use crate::devices::framebuffer::shape::Rect;
+use crate::ui_provider::{color::Color, shape::Rect};
 
 pub fn move_focus(blocks: &[FocusBlock], current: u32, dir: Arrow) -> u32 {
     if blocks.is_empty() {
@@ -38,18 +37,18 @@ pub fn move_focus(blocks: &[FocusBlock], current: u32, dir: Arrow) -> u32 {
     }
     let idx = blocks.iter().position(|b| b.id == current).unwrap_or(0);
     let cur = blocks[idx];
-    let cx = cur.rect.x + (cur.rect.w as i32 / 2);
-    let cy = cur.rect.y + (cur.rect.h as i32 / 2);
+    let cx = cur.rect.x + (cur.rect.w / 2);
+    let cy = cur.rect.y + (cur.rect.h / 2);
     let mut best = idx;
-    let mut best_score = i32::MAX;
+    let mut best_score = isize::MAX;
     for (i, b) in blocks.iter().enumerate() {
         if i == idx {
             continue;
         }
-        let bx = b.rect.x + (b.rect.w as i32 / 2);
-        let by = b.rect.y + (b.rect.h as i32 / 2);
-        let dx = bx - cx;
-        let dy = by - cy;
+        let bx = b.rect.x + (b.rect.w / 2);
+        let by = b.rect.y + (b.rect.h / 2);
+        let dx = bx as isize - cx as isize;
+        let dy = by as isize - cy as isize;
         let in_dir = match dir {
             Arrow::Up => dy < 0 && dx.abs() <= (-dy),
             Arrow::Down => dy > 0 && dx.abs() <= dy,

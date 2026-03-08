@@ -11,8 +11,8 @@
 //! - **No full-screen redraws**: Scrolling only marks the new line as dirty
 
 use crate::{
-    devices::framebuffer::{color::Color, framebuffer::FramebufferWriter},
-    ui::Theme,
+    devices::framebuffer::framebuffer::FramebufferWriter,
+    ui_provider::{color::Color, theme::Theme},
 };
 use alloc::{string::String, vec::Vec};
 use core::fmt::{self, Write};

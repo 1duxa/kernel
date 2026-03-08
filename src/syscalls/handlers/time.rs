@@ -18,7 +18,7 @@
 //! power efficiency but simple to implement. A proper implementation
 //! would yield the CPU and use timer interrupts.
 
-use crate::core::interrupts::interrupts::TIMER_TICKS;
+use crate::kcore::interrupts::interrupts::TIMER_TICKS;
 use crate::syscalls::dispatcher::SyscallResult;
 /// Sleep for specified milliseconds
 pub fn sys_sleep(milliseconds: u64) -> SyscallResult {

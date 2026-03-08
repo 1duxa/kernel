@@ -27,7 +27,7 @@
 //! dispatched to the appropriate syscall handler.
 
 use crate::{
-    core::interrupts::{
+    kcore::interrupts::{
         gdt,
         pic::{handle_interrupt, EoiTiming, InterruptIndex},
     },
@@ -98,7 +98,7 @@ extern "x86-interrupt" fn double_fault_handler(sf: InterruptStackFrame, err: u64
 extern "x86-interrupt" fn page_fault_handler(_sf: InterruptStackFrame, _err: PageFaultErrorCode) {
     use x86_64::registers::control::Cr2;
     if let Ok(addr) = Cr2::read() {
-        crate::memory::debug_page_walk(addr);
+        crate::memory::debug::debug_page_walk(addr);
     };
     panic!("Page fault!");
 }
@@ -152,12 +152,15 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_sf: InterruptStackFrame) {
 }
 
 extern "x86-interrupt" fn mouse_interrupt_handler(_sf: InterruptStackFrame) {
-    // Check PS/2 status register - bit 0 = output buffer full, bit 5 = from mouse
     handle_interrupt(
         InterruptIndex::Mouse,
         || {
-            while unsafe { (Port::<u8>::new(0x64).read() & 0x21) == 0x21 } {
-                let byte: u8 = unsafe { Port::new(0x60).read() };
+            let mut status = Port::<u8>::new(0x64);
+            let mut data = Port::<u8>::new(0x60);
+
+            // Drain output buffer
+            while unsafe { status.read() } & 0x01 != 0 {
+                let byte = unsafe { data.read() };
                 crate::devices::drivers::ps2_mouse::enqueue_mouse_byte(byte);
             }
         },

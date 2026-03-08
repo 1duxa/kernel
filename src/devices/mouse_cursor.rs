@@ -7,9 +7,10 @@
 //! - Renders cursor sprite with transparency
 //! - Saves/restores background under cursor for flicker-free updates
 
-use crate::devices::framebuffer::color::Color;
-use crate::devices::framebuffer::framebuffer::FramebufferWriter;
-use core::sync::atomic::{AtomicI32, AtomicBool, Ordering};
+use crate::{
+    devices::framebuffer::framebuffer::FramebufferWriter, println, ui_provider::color::Color,
+};
+use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
 // =============================================================================
 // CURSOR STATE
@@ -64,7 +65,7 @@ const CURSOR_BITMAP: [[u8; CURSOR_WIDTH]; CURSOR_HEIGHT] = [
 pub fn init(screen_width: usize, screen_height: usize) {
     SCREEN_WIDTH.store(screen_width as i32, Ordering::Relaxed);
     SCREEN_HEIGHT.store(screen_height as i32, Ordering::Relaxed);
-    
+
     // Start cursor at center of screen
     CURSOR_X.store(screen_width as i32 / 2, Ordering::Relaxed);
     CURSOR_Y.store(screen_height as i32 / 2, Ordering::Relaxed);
@@ -75,14 +76,14 @@ pub fn init(screen_width: usize, screen_height: usize) {
 pub fn update_position(dx: i16, dy: i16) {
     let old_x = CURSOR_X.load(Ordering::Relaxed);
     let old_y = CURSOR_Y.load(Ordering::Relaxed);
-    
+
     let screen_w = SCREEN_WIDTH.load(Ordering::Relaxed);
     let screen_h = SCREEN_HEIGHT.load(Ordering::Relaxed);
-    
+
     // Apply movement and clamp to screen bounds
     let new_x = (old_x + dx as i32).clamp(0, screen_w - 1);
     let new_y = (old_y + dy as i32).clamp(0, screen_h - 1);
-    
+
     if new_x != old_x || new_y != old_y {
         CURSOR_X.store(new_x, Ordering::Relaxed);
         CURSOR_Y.store(new_y, Ordering::Relaxed);
@@ -117,37 +118,41 @@ pub fn mark_drawn() {
 }
 
 /// Draw cursor on framebuffer
-/// 
+///
 /// This draws directly to the node buffer. Call this AFTER rendering
 /// the main content but BEFORE calling render_frame().
 pub fn draw(fb: &mut FramebufferWriter) {
     if !CURSOR_VISIBLE.load(Ordering::Relaxed) {
         return;
     }
-    
+
     let cx = CURSOR_X.load(Ordering::Relaxed);
     let cy = CURSOR_Y.load(Ordering::Relaxed);
-    
+    println!("mouse {}{}", cx, cy);
     let outline_color = Color::BLACK;
     let fill_color = Color::WHITE;
-    
+
     for (row, bitmap_row) in CURSOR_BITMAP.iter().enumerate() {
         let py = cy + row as i32;
         if py < 0 || py >= fb.height as i32 {
             continue;
         }
-        
+
         for (col, &pixel) in bitmap_row.iter().enumerate() {
             if pixel == 0 {
                 continue; // Transparent
             }
-            
+
             let px = cx + col as i32;
             if px < 0 || px >= fb.width as i32 {
                 continue;
             }
-            
-            let color = if pixel == 1 { outline_color } else { fill_color };
+
+            let color = if pixel == 1 {
+                outline_color
+            } else {
+                fill_color
+            };
             fb.put_pixel(px as usize, py as usize, color);
         }
     }

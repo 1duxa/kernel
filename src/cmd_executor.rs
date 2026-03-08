@@ -18,7 +18,7 @@
 //! | `run_all_tasks` | Run all tasks to completion |
 
 use crate::log_info;
-use alloc::{string::String, vec::Vec};
+use alloc::string::String;
 use core::str::SplitWhitespace;
 
 pub enum CommandResult {

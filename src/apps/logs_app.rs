@@ -11,10 +11,9 @@
 //! | Ctrl+L | Clear logs |
 
 use crate::app::{App, AppEvent, Arrow, FocusBlock};
-use crate::devices::framebuffer::color::Color;
 use crate::devices::framebuffer::framebuffer::FramebufferWriter;
-use crate::devices::framebuffer::shape::Rect;
 use crate::terminal_v2::Terminal;
+use crate::ui_provider::{color::Color, shape::Rect, theme::Theme};
 use alloc::{string::String, vec::Vec};
 use spin::Mutex;
 

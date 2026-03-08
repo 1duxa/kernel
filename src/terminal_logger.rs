@@ -8,7 +8,9 @@
 
 use crate::devices::framebuffer::framebuffer::{FramebufferWriter, FRAMEBUFFER};
 use crate::terminal_v2::Terminal;
+use crate::ui_provider::theme::Theme;
 use core::fmt::{self, Write};
+
 use spin::Mutex;
 
 /// Global terminal logger instance
@@ -20,7 +22,7 @@ pub struct TerminalLogger {
 }
 
 impl TerminalLogger {
-    pub fn new(cols: usize, rows: usize) -> Self {
+    pub fn new(cols: usize, rows: usize, theme: &Theme) -> Self {
         Self {
             terminal: Terminal::new(cols, rows, theme),
         }

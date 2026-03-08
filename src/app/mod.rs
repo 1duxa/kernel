@@ -9,11 +9,9 @@
 //! - `AppEvent`: Keyboard, mouse, and tick events
 //! - `FocusBlock`: Focusable UI regions for navigation
 
-use crate::devices::framebuffer::color::Color;
 use crate::devices::drivers::MouseEvent;
 use crate::devices::framebuffer::framebuffer::FramebufferWriter;
-use crate::ui::theme::Theme;
-use crate::ui::widgets::Rect;
+use crate::ui_provider::{color::Color, shape::Rect, theme::Theme};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
@@ -69,22 +67,22 @@ impl AppHost {
             focus_block_id: 1,
         }
     }
-    
+
     pub fn register_app(&mut self, app: Box<dyn App>) {
         if self.apps.is_empty() {
             self.focus_block_id = 1;
         }
         self.apps.push(app);
     }
-    
+
     pub fn app_mut(&mut self, idx: usize) -> &mut dyn App {
         &mut *self.apps[idx]
     }
-    
+
     pub fn layout_app(&mut self, idx: usize, bounds: Rect) {
         self.apps[idx].layout(bounds);
     }
-    
+
     pub fn render_app_once(&mut self, idx: usize, fb: &mut FramebufferWriter, theme: &Theme) {
         self.apps[idx].render(fb, theme);
     }
@@ -94,7 +92,7 @@ impl AppHost {
         if self.focus_app < self.apps.len() {
             self.apps[self.focus_app].render(fb, theme);
             self.apps[self.focus_app].overlay(fb, theme);
-            
+
             // Draw focus ring
             let blocks = self.apps[self.focus_app].focus_blocks().to_vec();
             if let Some(b) = blocks.iter().find(|b| b.id == self.focus_block_id) {
@@ -102,7 +100,7 @@ impl AppHost {
             }
         }
     }
-    
+
     /// Render all apps (for split-screen layout)
     pub fn render_all_apps(&mut self, fb: &mut FramebufferWriter, theme: &Theme) {
         for i in 0..self.apps.len() {
@@ -146,11 +144,11 @@ impl AppHost {
     }
 
     /// Handle mouse click - check if it's on a different app
-    pub fn handle_mouse_click(&mut self, x: i32, y: i32) {
+    pub fn handle_mouse_click(&mut self, x: usize, y: usize) {
         for (idx, app) in self.apps.iter().enumerate() {
             let bounds = app.bounds();
-            if x >= bounds.x && x < bounds.x + bounds.w as i32 &&
-               y >= bounds.y && y < bounds.y + bounds.h as i32 {
+            if x >= bounds.x && x < bounds.x + bounds.w && y >= bounds.y && y < bounds.y + bounds.h
+            {
                 if idx != self.focus_app {
                     self.focus_app = idx;
                     let blocks = self.apps[self.focus_app].focus_blocks();
@@ -183,7 +181,7 @@ impl AppHost {
         if self.apps.is_empty() {
             return;
         }
-        
+
         match event {
             AppEvent::KeyPress {
                 ch: _,

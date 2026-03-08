@@ -25,7 +25,7 @@
 //! x86_64::instructions::interrupts::enable();
 //! ```
 
-use crate::core::interrupts::interrupts::init_idt;
+use crate::kcore::interrupts::interrupts::init_idt;
 
 pub mod gdt;
 pub mod interrupts;
@@ -34,5 +34,6 @@ mod timer;
 
 pub fn init() {
     gdt::init();
+    pic::remap();
     init_idt();
 }

@@ -33,6 +33,41 @@
 //! PIC (Programmable Interrupt Controller) remapping
 use x86_64::instructions::port::Port;
 
+/// Remap PIC controllers so IRQs start at offsets 0x20 and 0x28.
+/// Call this during interrupt subsystem init before unmasking IRQs.
+pub fn remap() {
+    unsafe {
+        let mut pic1_cmd = Port::<u8>::new(0x20);
+        let mut pic1_data = Port::<u8>::new(0x21);
+        let mut pic2_cmd = Port::<u8>::new(0xA0);
+        let mut pic2_data = Port::<u8>::new(0xA1);
+
+        // save masks
+        let mask1 = pic1_data.read();
+        let mask2 = pic2_data.read();
+
+        // start init in cascade mode
+        pic1_cmd.write(0x11);
+        pic2_cmd.write(0x11);
+
+        // set vector offsets: master=0x20, slave=0x28
+        pic1_data.write(0x20);
+        pic2_data.write(0x28);
+
+        // tell master/slave wiring
+        pic1_data.write(0x04); // slave on IRQ2
+        pic2_data.write(0x02); // cascade identity
+
+        // set 8086 mode
+        pic1_data.write(0x01);
+        pic2_data.write(0x01);
+
+        // restore saved masks
+        pic1_data.write(mask1);
+        pic2_data.write(mask2);
+    }
+}
+
 pub const PIC_1_OFFSET: u8 = 32; // Primary PIC handles IRQs 0-7
 pub const PIC_2_OFFSET: u8 = 40; // Secondary PIC handles IRQs 8-15
 pub const KERNEL_OFFSET: u8 = 120;
