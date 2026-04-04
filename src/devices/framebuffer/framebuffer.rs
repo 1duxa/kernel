@@ -17,12 +17,10 @@ pub struct FramebufferWriter {
     pub height: usize,
     pub stride: usize,
     pub bytes_per_pixel: usize,
-    // Tiled renderer state
     nodes: Vec<u32>, // packed RGB888 per pixel
     tiles_x: usize,
     tiles_y: usize,
     tile_dirty: Vec<AtomicBool>,
-    // per-tile per-row hashes; len = tiles * TILE_H (clipped on bottom edge)
     tile_row_hash: Vec<u64>,
 }
 
@@ -75,7 +73,6 @@ impl FramebufferWriter {
         ((c.r as u32) << 16) | ((c.g as u32) << 8) | (c.b as u32)
     }
 
-    /// Low-level pixel write into nodes with dirty marking
     pub fn put_pixel(&mut self, x: usize, y: usize, color: Color) {
         if x >= self.width || y >= self.height {
             return;
@@ -89,14 +86,26 @@ impl FramebufferWriter {
         }
     }
 
-    /// Batch many pixels
     pub fn put_pixels(&mut self, pixels: &[(usize, usize, Color)]) {
         for &(x, y, c) in pixels {
             self.put_pixel(x, y, c);
         }
     }
 
-    /// Fill rectangle in node buffer and mark tiles
+    pub fn get_pixel(&self, x: usize, y: usize) -> Color {
+        if x >= self.width || y >= self.height {
+            return Color::BLACK;
+        }
+        let idx = self.idx(x, y);
+        let val = self.nodes[idx];
+        Color {
+            r: ((val >> 16) & 0xFF) as u8,
+            g: ((val >> 8) & 0xFF) as u8,
+            b: (val & 0xFF) as u8,
+            a: 255,
+        }
+    }
+
     pub fn draw_rect(&mut self, x0: usize, y0: usize, x1: usize, y1: usize, color: Color) {
         let x1 = x1.min(self.width);
         let y1 = y1.min(self.height);

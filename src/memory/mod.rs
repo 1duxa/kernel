@@ -1,23 +1,3 @@
-//! Memory Management Module
-//!
-//! This module handles all memory-related operations for the kernel:
-//!
-//! # Components
-//! - **Physical Frame Allocator**: Bump allocator for physical 4KiB frames
-//! - **Kernel Heap**: 256MB heap using fixed-size block allocator
-//! - **Page Table Management**: Direct manipulation of x86_64 page tables
-//! - **sys_mmap**: Memory mapping syscall for user/JIT code
-//!
-//! # Physical Memory Mapping
-//! The bootloader maps all physical memory at a configurable offset.
-//! With `Mapping::Dynamic`, the offset is chosen by the bootloader
-//! (typically around 0x20000000000 / 2TB). Physical address `P` can be
-//! accessed at virtual address `P + physical_memory_offset`.
-//!
-//! # Page Table Walking
-//! The `access_page_table()` function converts physical addresses to virtual
-//! using the bootloader's offset, allowing direct modification of page tables.
-
 use crate::println;
 use bootloader_api::info::MemoryRegionKind;
 use bootloader_api::BootInfo;
@@ -26,7 +6,10 @@ use core::ptr;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 pub mod allocators;
+pub mod brk;
 pub mod debug;
+pub mod mmap;
+pub mod munmap;
 
 use x86_64::registers::control::Cr3;
 use x86_64::{
@@ -36,7 +19,7 @@ use x86_64::{
     PhysAddr, VirtAddr,
 };
 
-use allocators::block::FixedSizeBlockAllocator;
+use crate::memory::allocators::block::FixedSizeBlockAllocator;
 
 // ============================================================================
 // CONSTANTS AND STATICS
@@ -52,9 +35,8 @@ pub static PHYSICAL_MEMORY_OFFSET: AtomicU64 = AtomicU64::new(0);
 pub static PHYSICAL_MEMORY_START: AtomicU64 = AtomicU64::new(0);
 pub static PHYSICAL_MEMORY_END: AtomicU64 = AtomicU64::new(0);
 pub static NEXT_PHYSICAL_FRAME: AtomicU64 = AtomicU64::new(0);
-static NEXT_MMAP_ADDR: AtomicU64 = AtomicU64::new(0x40_0000); // Start at 4MB
 
-// Flag to track if memory system is initialized
+static NEXT_MMAP_ADDR: AtomicU64 = AtomicU64::new(0x2000_0000);
 static MEMORY_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 // ============================================================================
@@ -167,10 +149,8 @@ pub unsafe fn init(boot_info: &BootInfo) -> Result<(), &'static str> {
             if region.start < lowest_region_start {
                 lowest_region_start = region.start;
             }
-            // Look for a region that starts after kernel (0x1700000) but is still mapped
-            // The bootloader identity-maps up to a certain point
+
             if region.start >= 0x1700000 && region.end <= 0x10000000 {
-                // Region between 23MB and 256MB - identity mapped
                 if region.end - region.start > best_region_end - best_region_start {
                     best_region_start = region.start;
                     best_region_end = region.end;
@@ -183,13 +163,12 @@ pub unsafe fn init(boot_info: &BootInfo) -> Result<(), &'static str> {
         return Err("No usable memory found");
     }
 
-    // Find the best region to avoid kernel
     let mut frame_start = 0u64;
     let mut frame_end = 0u64;
 
     for region in boot_info.memory_regions.iter() {
         if region.kind == MemoryRegionKind::Usable {
-            // Look for region in 1MB-16MB range (before kernel)
+            // Look for region in 1MB-16MB
             if region.start >= 0x100000 && region.start < 0x1000000 {
                 let usable_start = region.start;
                 let usable_end = region.end.min(0x1000000); // Cap at kernel start
@@ -257,20 +236,16 @@ pub unsafe fn init(boot_info: &BootInfo) -> Result<(), &'static str> {
 // PHYSICAL/VIRTUAL ADDRESS HELPERS
 // ============================================================================
 
-/// Convert a physical address to a virtual address using the bootloader's offset.
-/// With identity mapping (offset=0), phys == virt for accessible memory.
 pub fn phys_to_virt(phys: PhysAddr) -> VirtAddr {
     let offset = PHYSICAL_MEMORY_OFFSET.load(Ordering::SeqCst);
     VirtAddr::new(phys.as_u64() + offset)
 }
 
-/// Get the physical memory offset
 pub fn physical_memory_offset() -> u64 {
     PHYSICAL_MEMORY_OFFSET.load(Ordering::SeqCst)
 }
 
 /// Access a page table frame directly using identity mapping.
-/// SAFETY: Only valid when bootloader provides identity mapping (offset=0 or valid mapping).
 unsafe fn access_page_table(phys: PhysAddr) -> &'static mut PageTable {
     let offset = PHYSICAL_MEMORY_OFFSET.load(Ordering::SeqCst);
     let virt = phys.as_u64() + offset;
@@ -290,10 +265,7 @@ pub enum MapError {
     WalkError,
 }
 
-/// Map a single 4KiB page to a physical frame.
-///
-/// This directly walks and modifies page tables using identity mapping,
-/// which works because the bootloader identity-maps physical memory.
+/// 4KiB
 pub fn map_single_page(
     virt: VirtAddr,
     frame: PhysFrame<Size4KiB>,
@@ -309,7 +281,6 @@ pub fn map_single_page(
     let p2_idx = page.p2_index();
     let p1_idx = page.p1_index();
 
-    // Get CR3 (P4 physical address)
     let (cr3_frame, _) = Cr3::read();
     let cr3_phys = cr3_frame.start_address();
 
@@ -401,7 +372,6 @@ pub fn map_single_page(
     Ok(())
 }
 
-/// Check if a virtual address is mapped
 pub fn page_is_mapped(virt: VirtAddr) -> bool {
     let page = Page::<Size4KiB>::containing_address(virt);
     let p4_idx = page.p4_index();
@@ -467,87 +437,6 @@ fn zero_frame(frame: PhysFrame<Size4KiB>) {
 // ============================================================================
 // SYSCALLS
 // ============================================================================
-
-pub fn sys_mmap(
-    addr: usize,
-    length: usize,
-    prot: usize,
-    _flags: usize,
-    _fd: i32,
-    _offset: usize,
-) -> Result<usize, crate::syscalls::dispatcher::SyscallError> {
-    use crate::syscalls::dispatcher::SyscallError;
-
-    if length == 0 {
-        return Err(SyscallError::InvalidArgument);
-    }
-
-    let page_count = (length + 4095) / 4096;
-    let actual_size = page_count * 4096;
-
-    // Choose virtual address
-    let virt_addr = if addr != 0 {
-        addr as u64 & !0xFFF
-    } else {
-        NEXT_MMAP_ADDR.fetch_add(actual_size as u64, Ordering::SeqCst)
-    };
-
-    // Build page table flags
-    let mut flags = PageTableFlags::PRESENT;
-
-    // PROT_WRITE (0x2)
-    if prot & 0x2 != 0 {
-        flags |= PageTableFlags::WRITABLE;
-    }
-
-    // PROT_EXEC (0x4) - if NOT set, mark as no-execute
-    // Note: x86_64 uses NO_EXECUTE bit, so we set it when exec is NOT requested
-    if prot & 0x4 == 0 {
-        flags |= PageTableFlags::NO_EXECUTE;
-    }
-
-    // Map each page
-    for i in 0..page_count {
-        let page_virt = VirtAddr::new(virt_addr + (i * 4096) as u64);
-
-        let frame = allocate_frame().ok_or(SyscallError::NoMemory)?;
-
-        // Zero the frame before mapping
-        zero_frame(frame);
-
-        // Map the page
-        map_single_page(page_virt, frame, flags).map_err(|_| SyscallError::NoMemory)?;
-    }
-
-    Ok(virt_addr as usize)
-}
-
-pub fn sys_munmap(
-    addr: usize,
-    length: usize,
-) -> Result<usize, crate::syscalls::dispatcher::SyscallError> {
-    use crate::syscalls::dispatcher::SyscallError;
-
-    if length == 0 || addr & 0xFFF != 0 {
-        return Err(SyscallError::InvalidArgument);
-    }
-
-    // TODO: Implement proper unmapping
-    Ok(0)
-}
-
-pub fn sys_brk(addr: u64) -> Result<usize, crate::syscalls::dispatcher::SyscallError> {
-    const HEAP_START: u64 = 0x4444_4444_0000;
-    static PROGRAM_BREAK: AtomicU64 = AtomicU64::new(HEAP_START);
-
-    if addr == 0 {
-        return Ok(PROGRAM_BREAK.load(Ordering::Relaxed) as usize);
-    }
-
-    // Just track the break address, actual mapping happens on fault
-    PROGRAM_BREAK.store(addr, Ordering::Relaxed);
-    Ok(addr as usize)
-}
 
 // ============================================================================
 // COMPATIBILITY FUNCTIONS

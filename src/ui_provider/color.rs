@@ -98,7 +98,6 @@ impl Color {
         }
     }
 
-    /// Blend this color with another color using alpha compositing
     pub fn blend(&self, other: &Color) -> Color {
         let alpha = other.a as f32 / 255.0;
         let inv_alpha = 1.0 - alpha;
@@ -110,7 +109,7 @@ impl Color {
         )
     }
 
-    /// Darken the color by a factor (0.0 = no change, 1.0 = black)
+    /// 0.0 = no change, 1.0 = black
     pub fn darken(&self, factor: f32) -> Color {
         let factor = factor.min(1.0).max(0.0);
         Color::new(
@@ -120,7 +119,7 @@ impl Color {
         )
     }
 
-    /// Lighten the color by a factor (0.0 = no change, 1.0 = white)
+    /// 0.0 = no change, 1.0 = white
     pub fn lighten(&self, factor: f32) -> Color {
         let factor = factor.min(1.0).max(0.0);
         Color::new(
@@ -130,7 +129,7 @@ impl Color {
         )
     }
 
-    /// Mix two colors with a ratio (0.0 = self, 1.0 = other)
+    /// 0.0 = self, 1.0 = other
     pub fn mix(&self, other: &Color, ratio: f32) -> Color {
         let ratio = ratio.min(1.0).max(0.0);
         let inv_ratio = 1.0 - ratio;

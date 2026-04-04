@@ -24,7 +24,7 @@ use crate::syscalls::dispatcher::SyscallResult;
 pub fn sys_sleep(milliseconds: u64) -> SyscallResult {
     // busy wait (not ideal!)
     let target_ticks =
-        TIMER_TICKS.load(core::sync::atomic::Ordering::Relaxed) + (milliseconds * 18 / 1000); // ~18.2 Hz timer
+        TIMER_TICKS.load(core::sync::atomic::Ordering::Relaxed) + (milliseconds * 18 / 1000); // 18.2 Hz timer
 
     while TIMER_TICKS.load(core::sync::atomic::Ordering::Relaxed) < target_ticks {
         core::hint::spin_loop();

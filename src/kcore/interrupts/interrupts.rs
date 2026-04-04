@@ -1,30 +1,6 @@
 //! # Interrupt Descriptor Table and Handlers
 //!
 //! Defines the IDT and all interrupt/exception handlers for the kernel.
-//!
-//! ## Exception Handlers
-//!
-//! | Exception              | Action                              |
-//! |------------------------|-------------------------------------|
-//! | Breakpoint (#BP)       | Print debug info, continue          |
-//! | Page Fault (#PF)       | Diagnostic output, then panic       |
-//! | Divide Error (#DE)     | Panic                               |
-//! | Invalid Opcode (#UD)   | Panic                               |
-//! | General Protection     | Panic with error code               |
-//! | Double Fault (#DF)     | Panic (uses IST stack)              |
-//!
-//! ## Hardware Interrupts
-//!
-//! | IRQ  | Vector | Handler                   |
-//! |------|--------|---------------------------|
-//! | IRQ0 | 32     | Timer (increments tick)   |
-//! | IRQ1 | 33     | Keyboard (PS/2 scancode)  |
-//! | IRQ12| 44     | Mouse (PS/2 packet)       |
-//!
-//! ## Syscall
-//!
-//! Vector 0x80 handles system calls. Arguments in registers are
-//! dispatched to the appropriate syscall handler.
 
 use crate::{
     kcore::interrupts::{
@@ -40,19 +16,19 @@ use x86_64::{
     instructions::port::Port,
     structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode},
 };
-// PhysAddr is provided via frame.start_address when needed
+
 pub static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
 
 static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     let mut idt = InterruptDescriptorTable::new();
 
-    // CPU EXCEPTIONS (0-31)
     idt.breakpoint.set_handler_fn(breakpoint_handler);
     idt.page_fault.set_handler_fn(page_fault_handler);
     idt.divide_error.set_handler_fn(divide_error_handler);
     idt.invalid_opcode.set_handler_fn(invalid_opcode_handler);
     idt.general_protection_fault
         .set_handler_fn(general_protection_fault_handler);
+    
     // Double fault needs its own stack to avoid cascading failures
     unsafe {
         idt.double_fault
@@ -91,13 +67,26 @@ extern "x86-interrupt" fn general_protection_fault_handler(sf: InterruptStackFra
     );
 }
 
-extern "x86-interrupt" fn double_fault_handler(sf: InterruptStackFrame, err: u64) -> ! {
-    panic!("EXCEPTION: DOUBLE FAULT\n{sf:#?}\n CODE{err}");
-}
+extern "x86-interrupt" fn double_fault_handler(
+    frame: x86_64::structures::idt::InterruptStackFrame,
+    _error_code: u64,  
+) -> ! {
+    crate::println!("DOUBLE FAULT!");
+    crate::println!("  IP: {:#x}", frame.instruction_pointer);
+    crate::println!("  Stack: {:#x}", frame.stack_pointer);
 
+    let cr2 = x86_64::registers::control::Cr2::read();
+    crate::println!("  CR2: {:#x}", cr2.unwrap());
+
+    loop {
+        unsafe { core::arch::x86_64::_mm_pause(); }
+    }
+}
 extern "x86-interrupt" fn page_fault_handler(_sf: InterruptStackFrame, _err: PageFaultErrorCode) {
     use x86_64::registers::control::Cr2;
     if let Ok(addr) = Cr2::read() {
+        println!("PAGE FAULT! Address: {:#x}  Error: {:?}  IP: {:#x}", 
+             addr, _err, _sf.instruction_pointer);
         crate::memory::debug::debug_page_walk(addr);
     };
     panic!("Page fault!");
@@ -143,7 +132,6 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_sf: InterruptStackFrame) {
                     continue;
                 }
                 let sc = unsafe { data_port.read() };
-                println!("IRQ: keyboard scancode {:#x}", sc);
                 ps2_keyboard::enqueue_scancode(sc);
             }
         },
@@ -158,7 +146,6 @@ extern "x86-interrupt" fn mouse_interrupt_handler(_sf: InterruptStackFrame) {
             let mut status = Port::<u8>::new(0x64);
             let mut data = Port::<u8>::new(0x60);
 
-            // Drain output buffer
             while unsafe { status.read() } & 0x01 != 0 {
                 let byte = unsafe { data.read() };
                 crate::devices::drivers::ps2_mouse::enqueue_mouse_byte(byte);

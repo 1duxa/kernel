@@ -98,6 +98,12 @@ impl LinkedListAllocator {
             return Err(AllocError::OutOfMemory);
         }
 
+        let prefix = alloc_start - node.start_addr();
+        if prefix > 0 && prefix < core::mem::size_of::<ListNode>() {
+            // Alignment would leave a front fragment too small to store a ListNode.
+            return Err(AllocError::OutOfMemory);
+        }
+
         let excess = node.end_addr() - alloc_end;
         if excess > 0 && excess < core::mem::size_of::<ListNode>() {
             // Not enough space for a new node
@@ -105,6 +111,51 @@ impl LinkedListAllocator {
         }
 
         Ok(alloc_start)
+    }
+
+    /// Merge two free regions that touch in physical address order. Returns true if one merge happened.
+    unsafe fn merge_adjacent_once(head: &mut Option<NonNull<ListNode>>) -> bool {
+        unsafe {
+            let mut prev_a: *mut Option<NonNull<ListNode>> = core::ptr::from_mut(head);
+
+            while let Some(mut na) = *prev_a {
+                let a_start = na.as_ref().start_addr();
+                let a_end = na.as_ref().end_addr();
+
+                let mut prev_b: *mut Option<NonNull<ListNode>> = core::ptr::from_mut(head);
+
+                while let Some(mut nb) = *prev_b {
+                    if na.as_ptr() == nb.as_ptr() {
+                        prev_b = core::ptr::addr_of_mut!((*nb.as_ptr()).next);
+                        continue;
+                    }
+
+                    let b_start = nb.as_ref().start_addr();
+                    let b_end = nb.as_ref().end_addr();
+
+                    if a_end == b_start {
+                        let add = nb.as_ref().size;
+                        let nb_next = nb.as_mut().next;
+                        na.as_mut().size += add;
+                        *prev_b = nb_next;
+                        return true;
+                    }
+                    if b_end == a_start {
+                        let add = na.as_ref().size;
+                        let na_next = na.as_mut().next;
+                        nb.as_mut().size += add;
+                        *prev_a = na_next;
+                        return true;
+                    }
+
+                    prev_b = core::ptr::addr_of_mut!((*nb.as_ptr()).next);
+                }
+
+                prev_a = core::ptr::addr_of_mut!((*na.as_ptr()).next);
+            }
+
+            false
+        }
     }
 }
 
@@ -199,6 +250,10 @@ unsafe impl GlobalAlloc for LinkedListAllocator {
                 next: inner.head,
             });
             inner.head = NonNull::new(node_ptr);
+
+            unsafe {
+                while Self::merge_adjacent_once(&mut inner.head) {}
+            }
         });
     }
 }

@@ -1,42 +1,8 @@
-//! # Test Environment
-//!
-//! Provides test functions for validating kernel subsystems.
-//!
-//! ## Available Tests
-//!
-//! ### Memory Tests
-//! - `test_basic_paging()`: Tests page table mapping/unmapping
-//! - `test_memory_allocation()`: Tests heap allocator
-//!
-//! ### Process Tests
-//! - `test_process_creation()`: Tests process/task spawning
-//!
-//! ### Assembly Execution Tests
-//! - `test_asm_return_42()`: Tests JIT code that returns 42
-//! - `test_asm_add()`: Tests JIT code that computes 1+2=3
-//!
-//! ## Test Infrastructure
-//!
-//! Each test function:
-//! 1. Prints diagnostic information via `println!`
-//! 2. Returns a `String` summary result
-//! 3. Uses atomic counter to track test executions
-//!
-//! ## Usage
-//!
-//! Tests are invoked via terminal commands:
-//! ```text
-//! > test           # Run all tests
-//! > test_paging    # Run specific test
-//! > test_asm       # Run assembly tests
-//! ```
-
 use crate::println;
 use alloc::string::String;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use x86_64::structures::paging::{FrameAllocator, Mapper, Page, PageTableFlags, Translate};
 use x86_64::VirtAddr;
-// Using GlobalFrameAllocator from crate::memory for test allocations
 
 static TEST_EXECUTION_COUNT: AtomicUsize = AtomicUsize::new(0);
 
@@ -60,12 +26,6 @@ pub fn test_basic_paging() -> String {
                 frame.start_address().as_u64()
             );
 
-            // Use a KERNEL virtual address in the direct-mapped region. On some
-            // environments the bootloader does identity mapping (physical offset
-            // == 0). In that case mapping into the typical high-half region
-            // (0xffff_8800_0000_0000) will fail because the physical->virtual
-            // offset is not setup. Detect that here and use a lower virtual
-            // address for the test when necessary.
             let phys_offset = crate::memory::physical_memory_offset();
             let test_vaddr = if phys_offset == 0 {
                 println!(
@@ -108,8 +68,6 @@ pub fn test_basic_paging() -> String {
                         None => println!("TEST_PAGING: translate_addr -> None (not mapped)\n"),
                     }
 
-                    // Now write to the mapped virtual address
-                    // The mapper has already set up the translation
                     let test_ptr = test_vaddr.as_mut_ptr::<u64>();
                     println!(
                         "TEST_PAGING: Writing to test_ptr virt {:#x} (ptr: {:?})\n",
@@ -124,7 +82,7 @@ pub fn test_basic_paging() -> String {
                         println!("TEST_PAGING: Successfully wrote and read from mapped page (val={:#x})\n", read_val);
                     } else {
                         println!(
-                            "TEST_PAGING: ✗ Value mismatch: expected 0xdeadbeef, got {:#x}\n",
+                            "TEST_PAGING: Value mismatch: expected 0xdeadbeef, got {:#x}\n",
                             read_val
                         );
                     }
@@ -141,11 +99,11 @@ pub fn test_basic_paging() -> String {
                             "Page already mapped"
                         }
                     };
-                    println!("TEST_PAGING: ✗ Page mapping failed: {}", msg);
+                    println!("TEST_PAGING: Page mapping failed: {}", msg);
                 }
             }
         } else {
-            result.push_str("✗ Frame allocation failed\n");
+            result.push_str("Frame allocation failed\n");
         }
     }
 
@@ -157,8 +115,8 @@ pub fn test_process_creation() -> String {
     result.push_str("Testing process creation...\n");
 
     let _pid = crate::syscalls::handlers::process::get_next_pid();
-    result.push_str("✓ Assigned PID\n");
-    result.push_str("✓ Process context storage available\n");
+    result.push_str("Assigned PID\n");
+    result.push_str("Process context storage available\n");
 
     result
 }
@@ -176,11 +134,11 @@ pub fn test_memory_allocation() -> String {
         let layout = ::core::alloc::Layout::from_size_align_unchecked(test_size, 16);
         let ptr = alloc(layout);
         if !ptr.is_null() {
-            result.push_str("✓ Allocated memory successfully\n");
+            result.push_str("Allocated memory successfully\n");
             dealloc(ptr, layout);
-            result.push_str("✓ Memory deallocated successfully\n");
+            result.push_str("Memory deallocated successfully\n");
         } else {
-            result.push_str("✗ Memory allocation failed\n");
+            result.push_str("Memory allocation failed\n");
         }
     }
 
@@ -191,7 +149,7 @@ pub fn test_mmap_mapping() -> String {
     let mut result = String::new();
     result.push_str("Testing sys_mmap mapping & write...\n");
 
-    use crate::memory::{sys_mmap, sys_munmap};
+    use crate::memory::{mmap::sys_mmap, munmap::sys_munmap};
 
     const PROT_WRITE: usize = 0x2;
     const PROT_EXEC: usize = 0x4;
@@ -208,10 +166,10 @@ pub fn test_mmap_mapping() -> String {
                 println!("TEST_ENV: read back {:#x}", v);
             }
             let _ = sys_munmap(virt_addr, 4096);
-            result.push_str("✓ sys_mmap & write test succeeded\n");
+            result.push_str("sys_mmap & write test succeeded\n");
         }
         Err(_) => {
-            result.push_str("✗ sys_mmap failed (no memory or invalid alloc)\n");
+            result.push_str("sys_mmap failed (no memory or invalid alloc)\n");
         }
     }
 
@@ -222,19 +180,19 @@ pub fn test_asm_simple_return() -> String {
     let mut result = String::new();
     result.push_str("Testing assembly execution (return 42)...\n");
 
-    use crate::asm_executor::{AsmExecutor, AsmProgram};
+    use crate::tests::asm::{AsmExecutor, AsmProgram};
 
     println!("TEST_ENV: calling AsmExecutor::execute for simple_return_42");
     match AsmExecutor::execute(AsmProgram::simple_return_42()) {
         Ok(ret_val) => {
             if ret_val == 42 {
-                result.push_str("✓ Assembly executed successfully, returned 42\n");
+                result.push_str("Assembly executed successfully, returned 42\n");
             } else {
-                result.push_str("✗ Got unexpected return value\n");
+                result.push_str("Got unexpected return value\n");
             }
         }
         Err(e) => {
-            let mut msg = String::from("✗ Assembly execution failed: ");
+            let mut msg = String::from("Assembly execution failed: ");
             msg.push_str(&e);
             result.push_str(&msg);
             result.push('\n');
@@ -248,19 +206,19 @@ pub fn test_asm_add() -> String {
     let mut result = String::new();
     result.push_str("Testing assembly execution (1 + 2)...\n");
 
-    use crate::asm_executor::{AsmExecutor, AsmProgram};
+    use crate::tests::asm::{AsmExecutor, AsmProgram};
 
     println!("TEST_ENV: calling AsmExecutor::execute for simple_add_1_2");
     match AsmExecutor::execute(AsmProgram::simple_add_1_2()) {
         Ok(ret_val) => {
             if ret_val == 3 {
-                result.push_str("✓ Assembly executed successfully, returned 3\n");
+                result.push_str("Assembly executed successfully, returned 3\n");
             } else {
-                result.push_str("✗ Got unexpected return value\n");
+                result.push_str("Got unexpected return value\n");
             }
         }
         Err(e) => {
-            let mut msg = String::from("✗ Assembly execution failed: ");
+            let mut msg = String::from("Assembly execution failed: ");
             msg.push_str(&e);
             result.push_str(&msg);
             result.push('\n');

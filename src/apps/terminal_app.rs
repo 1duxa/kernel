@@ -1,94 +1,117 @@
-//! # Terminal Application
-//!
-//! Interactive shell with command execution and multi-line input.
-//!
-//! ## Shortcuts
-//!
-//! | Key | Action |
-//! |-----|--------|
-//! | Enter | New line |
-//! | Shift+Enter | Execute command |
-//! | Ctrl+L | Clear screen |
-//! | Backspace | Delete character |
-
 use crate::app::{App, AppEvent, FocusBlock};
 use crate::cmd_executor::CommandExecutor;
-use crate::devices::framebuffer::framebuffer::FramebufferWriter;
+
 use crate::terminal_v2::Terminal;
-use crate::ui_provider::{shape::Rect, theme::Theme};
+use crate::ui_provider::{render::RenderList, shape::Rect, theme::Theme};
 use alloc::string::String;
 
 pub struct TerminalApp {
-    pub term: Terminal,
+    terminal: Terminal,
     block: FocusBlock,
     bounds: Rect,
     current_line: String,
+    full_redraw: bool,
 }
 
 impl TerminalApp {
-    pub fn new(term: Terminal) -> Self {
+    pub fn new(width: usize, height: usize) -> Self {
+        let cols = (width / 10).max(1);
+        let rows = (height / 20).max(1);
+        let theme = Theme::dark_modern();
+
         Self {
-            term,
+            terminal: Terminal::new(cols, rows, &theme),
             block: FocusBlock {
                 id: 1,
                 rect: Rect::new(0, 0, 0, 0),
             },
             bounds: Rect::new(0, 0, 0, 0),
             current_line: String::new(),
+            full_redraw: true,
         }
     }
-}
 
-impl TerminalApp {
+    fn write_prompt(&mut self) {
+        self.terminal.write("> ");
+        self.terminal.set_prompt_start();
+    }
+
     fn execute_command(&mut self) {
         let input = self.current_line.clone();
         self.current_line.clear();
 
-        self.term.write("\n");
+        self.terminal.write("\n");
 
         use crate::cmd_executor::CommandResult;
         match CommandExecutor::execute(&input) {
             CommandResult::Output(output) => {
-                self.term.write(&output);
-                self.term.write("\n");
+                self.terminal.write(&output);
+                self.terminal.write("\n");
             }
             CommandResult::Error(error) => {
                 let mut err_display = String::from("Error: ");
                 err_display.push_str(&error);
-                self.term.write(&err_display);
-                self.term.write("\n");
+                self.terminal.write(&err_display);
+                self.terminal.write("\n");
             }
             CommandResult::Exit => {
-                self.term.write("Goodbye!\n");
+                self.terminal.write("Goodbye!\n");
             }
         }
 
-        self.term.write("> ");
-        self.term.set_prompt_start();
+        self.write_prompt();
+    }
+
+    fn clear_screen(&mut self) {
+        self.terminal.clear();
+        self.current_line.clear();
+        self.write_prompt();
+        self.full_redraw = true;
+    }
+
+    fn resize_terminal(&mut self, theme: &Theme) {
+        let cols = (self.bounds.w / 10).max(1);
+        let rows = (self.bounds.h / 20).max(1);
+
+        let mut new_terminal = Terminal::new(cols, rows, theme);
+        new_terminal.write("Terminal\n");
+        new_terminal.write("Type 'help' for available commands\n");
+        new_terminal.write("Shortcuts: Alt+Tab to switch apps\n\n");
+        self.write_prompt_into(&mut new_terminal);
+
+        self.terminal = new_terminal;
+        self.current_line.clear();
+        self.full_redraw = true;
+    }
+
+    fn write_prompt_into(&self, terminal: &mut Terminal) {
+        terminal.write("> ");
+        terminal.set_prompt_start();
     }
 }
 
 impl App for TerminalApp {
     fn init(&mut self) {
-        self.term.write("DuxOS Terminal v2\n");
-        self.term.write("Type 'help' for available commands\n");
-        self.term
-            .write("Shortcuts: Alt+Tab to switch apps, Ctrl+Arrows for navigation\n\n");
-        self.term.write("> ");
-        self.term.set_prompt_start();
+        self.terminal.write("Terminal\n");
+        self.terminal.write("Type 'help' for available commands\n");
+        self.terminal.write("Shortcuts: Alt+Tab to switch apps\n\n");
+        self.write_prompt();
+        self.full_redraw = true;
     }
 
-    fn on_event(&mut self, event: AppEvent) {
+    fn on_event(&mut self, event: AppEvent) -> bool {
         match event {
             AppEvent::Mouse(me) => {
-                // Only show mouse info on clicks, not movement
                 if me.buttons != 0 {
                     let (mx, my) = crate::devices::mouse_cursor::get_position();
-                    self.term.write("[click@");
-                    self.term.write(&format_num(mx));
-                    self.term.write(",");
-                    self.term.write(&format_num(my));
-                    self.term.write("]");
+                    self.terminal.write("[click@");
+                    self.terminal.write(&format_num(mx));
+                    self.terminal.write(",");
+                    self.terminal.write(&format_num(my));
+                    self.terminal.write("]");
+                    true
+                } else {
+                    false
                 }
             }
             AppEvent::KeyPress {
@@ -98,70 +121,79 @@ impl App for TerminalApp {
                 shift,
                 arrow,
             } => {
-                // Ignore arrow keys (handled by navigation)
                 if arrow.is_some() {
-                    return;
+                    return false;
                 }
 
-                // Ctrl+L: clear screen
                 if ctrl && ch == 'l' {
-                    self.term.clear();
-                    self.term.write("> ");
-                    self.term.set_prompt_start();
-                    self.current_line.clear();
-                    return;
+                    self.clear_screen();
+                    return true;
                 }
 
-                // Enter key
                 if ch == '\n' {
                     if shift {
-                        // Shift+Enter: execute command
                         self.execute_command();
                     } else {
-                        // Enter: new line in multi-line input
-                        self.term.write("\n");
+                        self.terminal.write("\n");
                         self.current_line.push('\n');
                     }
-                    return;
+                    return true;
                 }
 
-                // Backspace
                 if ch == '\x08' {
                     if !self.current_line.is_empty() {
-                        self.term.write("\x08");
+                        self.terminal.write("\x08");
                         self.current_line.pop();
+                        return true;
                     }
-                    return;
+                    return false;
                 }
 
-                // Regular character
-                if !ch.is_control() {
+                if !ctrl && !ch.is_control() {
                     let mut buf = [0u8; 4];
-                    self.term.write(ch.encode_utf8(&mut buf));
+                    self.terminal.write(ch.encode_utf8(&mut buf));
                     self.current_line.push(ch);
+                    return true;
                 }
+
+                false
             }
-            AppEvent::Tick => {}
+            AppEvent::Tick => false,
         }
     }
 
     fn layout(&mut self, bounds: Rect) {
+        let changed = self.bounds.x != bounds.x
+            || self.bounds.y != bounds.y
+            || self.bounds.w != bounds.w
+            || self.bounds.h != bounds.h;
+
         self.bounds = bounds;
         self.block.rect = bounds;
+
+        if changed {
+            let theme = Theme::dark_modern();
+            self.resize_terminal(&theme);
+        }
     }
 
-    fn render(&mut self, fb: &mut FramebufferWriter, _theme: &Theme) {
-        self.term.render_into_rect(
-            fb,
-            self.bounds.x,
-            self.bounds.y,
-            self.bounds.w,
-            self.bounds.h,
-        );
-    }
-
-    fn overlay(&mut self, fb: &mut FramebufferWriter, _theme: &Theme) {
-        self.term.draw_cursor(fb, self.bounds.x, self.bounds.y);
+    fn collect_render(
+        &mut self,
+        theme: &Theme,
+        out: &mut RenderList,
+    ) {
+        if self.full_redraw {
+            out.fill_rect(self.bounds, theme.surface);
+            self.terminal.collect_render_full(out, self.bounds.x, self.bounds.y);
+        } else {
+            self.terminal.collect_render(
+                out,
+                self.bounds.x,
+                self.bounds.y,
+                self.bounds.w,
+                self.bounds.h,
+            );
+        }
     }
 
     fn focus_blocks(&mut self) -> &mut [FocusBlock] {
@@ -173,7 +205,7 @@ impl App for TerminalApp {
     }
 }
 
-/// Simple number to string formatting (no alloc formatting)
+/// Simple integer-to-string for mouse coordinates (no alloc formatting).
 fn format_num(n: i32) -> String {
     if n == 0 {
         return String::from("0");

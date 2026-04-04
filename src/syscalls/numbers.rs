@@ -7,31 +7,31 @@ pub enum SyscallNumber {
     Write = 1,
     Open = 2,
     Close = 3,
-    
+
     // Process Management (20-39)
     Exit = 20,
     Fork = 21,
     Exec = 22,
     Wait = 23,
     GetPid = 24,
-    
+
     // Memory Management (40-59)
     Mmap = 40,
     Munmap = 41,
     Brk = 42,
-    
+
     // Time (60-79)
     Sleep = 60,
     GetTime = 61,
-    
+
     // Signals (80-99)
     Kill = 80,
     Signal = 81,
-    
+
     // File System (100-119)
     Chdir = 100,
     Mkdir = 101,
-    
+
     // Unknown
     Unknown = usize::MAX,
 }
@@ -60,3 +60,4 @@ impl From<usize> for SyscallNumber {
         }
     }
 }
+

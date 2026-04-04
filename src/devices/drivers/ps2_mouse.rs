@@ -1,23 +1,4 @@
 //! PS/2 Mouse Driver
-//!
-//! This module implements a PS/2 mouse driver that handles IRQ12 interrupts
-//! and decodes 3-byte mouse packets into movement and button events.
-//!
-//! # Architecture
-//! - Ring buffer for storing raw mouse bytes from IRQ handler
-//! - Packet decoder for converting 3-byte sequences to MouseEvent
-//! - Global decoder instance for use by the kernel
-//!
-//! # Usage
-//! ```ignore
-//! // In IRQ12 handler:
-//! ps2_mouse::enqueue_mouse_byte(byte);
-//!
-//! // In polling loop:
-//! if let Some(event) = ps2_mouse::poll_mouse_event() {
-//!     // Handle mouse movement/clicks
-//! }
-//! ```
 
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use spin::Mutex;
@@ -29,25 +10,17 @@ use x86_64::instructions::port::Port;
 
 const BUFFER_SIZE: usize = 256;
 
-/// Ring buffer for mouse bytes (lock-free SPSC queue)
 static mut MOUSE_BUF: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
 static MOUSE_HEAD: AtomicU8 = AtomicU8::new(0);
 static MOUSE_TAIL: AtomicU8 = AtomicU8::new(0);
-
-/// Mouse initialization state
 static MOUSE_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
-/// Enqueue a mouse byte from the IRQ handler (producer side)
-///
-/// This function is called from the IRQ12 handler and must be fast.
-/// Uses relaxed/release ordering for lock-free operation.
 #[inline]
 pub fn enqueue_mouse_byte(byte: u8) {
     let head = MOUSE_HEAD.load(Ordering::Relaxed) as usize;
     let next = (head + 1) % BUFFER_SIZE;
     let tail = MOUSE_TAIL.load(Ordering::Acquire) as usize;
 
-    // Drop byte if buffer is full (don't block in IRQ handler)
     if next != tail {
         unsafe {
             MOUSE_BUF[head] = byte;
@@ -56,7 +29,6 @@ pub fn enqueue_mouse_byte(byte: u8) {
     }
 }
 
-/// Dequeue a mouse byte (consumer side)
 fn dequeue_mouse_byte() -> Option<u8> {
     let tail = MOUSE_TAIL.load(Ordering::Relaxed) as usize;
     let head = MOUSE_HEAD.load(Ordering::Acquire) as usize;
@@ -75,31 +47,24 @@ fn dequeue_mouse_byte() -> Option<u8> {
 // MOUSE EVENT
 // =============================================================================
 
-/// Represents a decoded mouse event with movement and button states
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MouseEvent {
-    /// Relative X movement (-128 to 127)
     pub dx: i16,
-    /// Relative Y movement (-128 to 127, positive = up)
     pub dy: i16,
-    /// Button states: bit 0 = left, bit 1 = right, bit 2 = middle
     pub buttons: u8,
 }
 
 impl MouseEvent {
-    /// Check if left button is pressed
     #[inline]
     pub fn left_button(&self) -> bool {
         (self.buttons & 0x01) != 0
     }
 
-    /// Check if right button is pressed
     #[inline]
     pub fn right_button(&self) -> bool {
         (self.buttons & 0x02) != 0
     }
 
-    /// Check if middle button is pressed
     #[inline]
     pub fn middle_button(&self) -> bool {
         (self.buttons & 0x04) != 0
@@ -110,12 +75,6 @@ impl MouseEvent {
 // PACKET DECODER
 // =============================================================================
 
-/// PS/2 mouse packet decoder
-///
-/// Standard PS/2 mice send 3-byte packets:
-/// - Byte 0: Status (buttons, sign bits, overflow bits)
-/// - Byte 1: X movement
-/// - Byte 2: Y movement
 pub struct MouseDecoder {
     buffer: [u8; 3],
     index: usize,
@@ -129,12 +88,8 @@ impl MouseDecoder {
         }
     }
 
-    /// Process a byte and return an event if a complete packet is decoded
     pub fn process_byte(&mut self, byte: u8) -> Option<MouseEvent> {
-        // First byte must have bit 3 set (always 1 in standard PS/2 protocol)
-        // This helps with synchronization
         if self.index == 0 && (byte & 0x08) == 0 {
-            // Invalid first byte, skip (resync)
             return None;
         }
 
@@ -149,7 +104,6 @@ impl MouseDecoder {
         }
     }
 
-    /// Reset decoder state (useful for resynchronization)
     pub fn reset(&mut self) {
         self.index = 0;
     }
@@ -167,7 +121,6 @@ impl MouseDecoder {
         let x_overflow = (status & 0x40) != 0;
         let y_overflow = (status & 0x80) != 0;
 
-        // Convert to signed values with sign extension
         let dx = if x_overflow {
             if x_sign {
                 -256i16
@@ -194,7 +147,7 @@ impl MouseDecoder {
 
         MouseEvent {
             dx,
-            dy: -dy, // Invert Y so positive = up (screen coordinates)
+            dy: -dy,
             buttons: status & 0x07,
         }
     }
@@ -206,10 +159,6 @@ impl MouseDecoder {
 
 static DECODER: Mutex<MouseDecoder> = Mutex::new(MouseDecoder::new());
 
-/// Poll for a mouse event
-///
-/// Processes any pending bytes in the ring buffer and returns
-/// a MouseEvent when a complete packet is decoded.
 pub fn poll_mouse_event() -> Option<MouseEvent> {
     let mut decoder = DECODER.lock();
 
@@ -222,7 +171,6 @@ pub fn poll_mouse_event() -> Option<MouseEvent> {
     None
 }
 
-/// Check if mouse is initialized
 pub fn is_initialized() -> bool {
     MOUSE_INITIALIZED.load(Ordering::Relaxed)
 }
@@ -231,10 +179,8 @@ pub fn is_initialized() -> bool {
 // INITIALIZATION
 // =============================================================================
 
-/// Wait for PS/2 controller input buffer to be ready (can write)
 fn wait_for_write() -> Result<(), &'static str> {
     for _ in 0..100_000 {
-        // Reduced from 1_000_000
         let status = unsafe { Port::<u8>::new(0x64).read() };
         if (status & 0x02) == 0 {
             return Ok(());
@@ -244,10 +190,8 @@ fn wait_for_write() -> Result<(), &'static str> {
     Err("PS/2 controller write timeout")
 }
 
-/// Wait for PS/2 controller output buffer to have data (can read)
 fn wait_for_read() -> Result<(), &'static str> {
     for _ in 0..100_000 {
-        // Reduced from 1_000_000
         let status = unsafe { Port::<u8>::new(0x64).read() };
         if (status & 0x01) != 0 {
             return Ok(());
@@ -257,14 +201,12 @@ fn wait_for_read() -> Result<(), &'static str> {
     Err("PS/2 controller read timeout")
 }
 
-/// Flush any pending data from PS/2 controller
 fn flush_output_buffer() {
     for _ in 0..100 {
         let status = unsafe { Port::<u8>::new(0x64).read() };
         if (status & 0x01) == 0 {
             break;
         }
-        // Read and discard
         let _ = unsafe { Port::<u8>::new(0x60).read() };
         for _ in 0..100 {
             core::hint::spin_loop();
@@ -272,7 +214,6 @@ fn flush_output_buffer() {
     }
 }
 
-/// Send command to PS/2 controller
 fn send_controller_command(cmd: u8) -> Result<(), &'static str> {
     wait_for_write()?;
     unsafe {
@@ -373,8 +314,33 @@ pub fn init() -> Result<(), &'static str> {
 
     // Reset decoder state
     DECODER.lock().reset();
-
+    send_controller_command(0xAE)?;
     MOUSE_INITIALIZED.store(true, Ordering::Release);
+
+    // enable keyboard interrupt (irq1)
+    unsafe {
+        use x86_64::instructions::port::Port;
+        let mut pic1_data = Port::<u8>::new(0x21);
+        let mask: u8 = pic1_data.read();
+        let new_mask = mask & !(1 << 1); // enable irq1 (keyboard)
+        pic1_data.write(new_mask);
+    }
+
+    // Debug: print current PIC masks (master=0x21, slave=0xA1) to serial/framebuffer
+    unsafe {
+        use x86_64::instructions::port::Port;
+        let mut m = Port::<u8>::new(0x21);
+        let mut s = Port::<u8>::new(0xA1);
+        let master_mask = m.read();
+        let slave_mask = s.read();
+        crate::println!(
+            "PIC masks after unmask: master=0x{:02x} slave=0x{:02x}",
+            master_mask,
+            slave_mask
+        );
+    }
+
+    crate::println!("3");
 
     Ok(())
 }

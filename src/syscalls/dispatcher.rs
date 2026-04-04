@@ -1,39 +1,13 @@
 //! # System Call Dispatcher
 //!
 //! Routes system calls to appropriate handlers based on syscall number.
-//!
-//! ## Dispatch Process
-//!
-//! 1. Syscall interrupt (int 0x80) triggers dispatcher
-//! 2. Syscall number from RAX selects handler
-//! 3. Arguments passed via registers (RDI, RSI, RDX, etc.)
-//! 4. Result returned in RAX
-//!
-//! ## Error Handling
-//!
-//! Handlers return `SyscallResult`:
-//! - `Ok(value)`: Success with return value
-//! - `Err(SyscallError)`: Error code converted to errno
-//!
-//! ## Errno Values
-//!
-//! | Error             | Errno | Description           |
-//! |-------------------|-------|-----------------------|
-//! | InvalidSyscall    | -1    | Unknown syscall       |
-//! | InvalidArgument   | -22   | EINVAL               |
-//! | PermissionDenied  | -13   | EACCES               |
-//! | NotImplemented    | -38   | ENOSYS               |
-//! | BadFileDescriptor | -9    | EBADF                |
-//! | NoMemory          | -12   | ENOMEM               |
-//! | IoError           | -5    | EIO                  |
 
-use crate::syscalls::numbers::SyscallNumber;
+use crate::memory::{brk::sys_brk, mmap::sys_mmap, munmap::sys_munmap};
 use crate::syscalls::handlers;
-use crate::memory::{sys_brk, sys_mmap, sys_munmap};
-/// System call result type
+use crate::syscalls::numbers::SyscallNumber;
+
 pub type SyscallResult = Result<usize, SyscallError>;
 
-/// System call errors
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SyscallError {
     InvalidSyscall,
@@ -71,16 +45,6 @@ pub struct SyscallContext {
     pub arg5: usize,
 }
 impl SyscallContext {
-    /// Create from interrupt stack frame
-    /// 
-    /// x86_64 syscall convention (using `syscall` instruction):
-    ///   rax = syscall number
-    ///   rdi = arg0
-    ///   rsi = arg1
-    ///   rdx = arg2
-    ///   r10 = arg3  (rcx is used for return address)
-    ///   r8  = arg4
-    ///   r9  = arg5
     pub fn from_registers(
         rax: usize,
         rdi: usize,
@@ -102,60 +66,57 @@ impl SyscallContext {
     }
 }
 
-/// Main syscall dispatcher
 pub fn dispatch_syscall(ctx: SyscallContext) -> SyscallResult {
     let syscall = SyscallNumber::from(ctx.syscall_num);
-    
-    // Log syscall for debugging (remove in production)
+
     #[cfg(debug_assertions)]
-    crate::println!("SYSCALL: {:?}({}, {}, {}, {}, {}, {})",
-        syscall, ctx.arg0, ctx.arg1, ctx.arg2, ctx.arg3, ctx.arg4, ctx.arg5);
-    
+    crate::println!(
+        "SYSCALL: {:?}({}, {}, {}, {}, {}, {})",
+        syscall,
+        ctx.arg0,
+        ctx.arg1,
+        ctx.arg2,
+        ctx.arg3,
+        ctx.arg4,
+        ctx.arg5
+    );
+
     match syscall {
         // I/O Operations
-        SyscallNumber::Read => handlers::io::sys_read(
-            ctx.arg0 as i32,
-            ctx.arg1 as *mut u8,
-            ctx.arg2,
-        ),
-        SyscallNumber::Write => handlers::io::sys_write(
-            ctx.arg0 as i32,
-            ctx.arg1 as *const u8,
-            ctx.arg2,
-        ),
-        SyscallNumber::Open => handlers::io::sys_open(
-            ctx.arg0 as *const u8,
-            ctx.arg1,
-            ctx.arg2,
-        ),
+        SyscallNumber::Read => {
+            handlers::io::sys_read(ctx.arg0 as i32, ctx.arg1 as *mut u8, ctx.arg2)
+        }
+        SyscallNumber::Write => {
+            handlers::io::sys_write(ctx.arg0 as i32, ctx.arg1 as *const u8, ctx.arg2)
+        }
+        SyscallNumber::Open => handlers::io::sys_open(ctx.arg0 as *const u8, ctx.arg1, ctx.arg2),
         SyscallNumber::Close => handlers::io::sys_close(ctx.arg0 as i32),
-        
+
         // Process Management
         SyscallNumber::Exit => handlers::process::sys_exit(ctx.arg0 as i32),
         SyscallNumber::GetPid => handlers::process::sys_getpid(),
         SyscallNumber::Fork => handlers::process::sys_fork(),
-        SyscallNumber::Exec => handlers::process::sys_exec(
-            ctx.arg0 as *const u8,
-            ctx.arg1 as *const *const u8,
-        ),
+        SyscallNumber::Exec => {
+            handlers::process::sys_exec(ctx.arg0 as *const u8, ctx.arg1 as *const *const u8)
+        }
         SyscallNumber::Wait => handlers::process::sys_wait(ctx.arg0 as *mut i32),
-        
+
         // Memory Management
-        SyscallNumber::Mmap =>sys_mmap(
-            ctx.arg0 ,
-            ctx.arg1 ,
-            ctx.arg2 ,
-            ctx.arg3 ,
+        SyscallNumber::Mmap => sys_mmap(
+            ctx.arg0,
+            ctx.arg1,
+            ctx.arg2,
+            ctx.arg3,
             ctx.arg4 as i32,
-            ctx.arg5 ,
+            ctx.arg5,
         ),
         SyscallNumber::Munmap => sys_munmap(ctx.arg0, ctx.arg1),
         SyscallNumber::Brk => sys_brk(ctx.arg0 as u64),
-        
+
         // Time
         SyscallNumber::Sleep => handlers::time::sys_sleep(ctx.arg0 as u64),
         SyscallNumber::GetTime => handlers::time::sys_gettime(),
-        
+
         // Not yet implemented
         _ => Err(SyscallError::NotImplemented),
     }

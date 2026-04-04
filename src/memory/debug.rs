@@ -1,8 +1,6 @@
 use crate::{memory::access_page_table, println};
 use x86_64::{registers::control::Cr3, structures::paging::PageTableFlags, VirtAddr};
 
-/// Walk page tables and print diagnostic information for a virtual address.
-/// Used for debugging page faults.
 pub fn debug_page_walk(virt: VirtAddr) {
     let va_u64 = virt.as_u64();
     let p4_index = ((va_u64 >> 39) & 0x1FF) as usize;

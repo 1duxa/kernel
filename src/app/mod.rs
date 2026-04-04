@@ -1,21 +1,20 @@
 //! # Application Framework
 //!
-//! GUI-like application model with event handling and focus management.
-//!
-//! ## Components
-//!
-//! - `App` trait: Interface for applications
-//! - `AppHost`: Manages multiple apps and dispatches events
-//! - `AppEvent`: Keyboard, mouse, and tick events
-//! - `FocusBlock`: Focusable UI regions for navigation
+//! GUI-like application model
 
 use crate::devices::drivers::MouseEvent;
-use crate::devices::framebuffer::framebuffer::FramebufferWriter;
-use crate::ui_provider::{color::Color, shape::Rect, theme::Theme};
+use crate::ui_provider::{
+    color::Color,
+    render::{flush_commands, RenderCommand, RenderList},
+    shape::Rect,
+    theme::Theme,
+};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 pub mod navigation;
+
+const OFF_SCREEN_PARK_X: usize = 10_000;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Arrow {
@@ -45,10 +44,15 @@ pub struct FocusBlock {
 
 pub trait App {
     fn init(&mut self) {}
-    fn on_event(&mut self, _event: AppEvent) {}
+    fn on_event(&mut self, _event: AppEvent) -> bool {
+        false
+    }
     fn layout(&mut self, _bounds: Rect) {}
-    fn render(&mut self, fb: &mut FramebufferWriter, theme: &Theme);
-    fn overlay(&mut self, _fb: &mut FramebufferWriter, _theme: &Theme) {}
+
+    fn collect_render(&mut self, _theme: &Theme, _out: &mut RenderList) {}
+
+    fn collect_overlay(&mut self, _theme: &Theme, _out: &mut RenderList) {}
+
     fn focus_blocks(&mut self) -> &mut [FocusBlock];
     fn bounds(&self) -> Rect;
 }
@@ -57,6 +61,9 @@ pub struct AppHost {
     apps: Vec<Box<dyn App>>,
     focus_app: usize,
     focus_block_id: u32,
+    render_commands: RenderList,
+    overlay_commands: RenderList,
+    needs_redraw: bool,
 }
 
 impl AppHost {
@@ -65,6 +72,9 @@ impl AppHost {
             apps: Vec::new(),
             focus_app: 0,
             focus_block_id: 1,
+            render_commands: RenderList::new(),
+            overlay_commands: RenderList::new(),
+            needs_redraw: true,
         }
     }
 
@@ -73,6 +83,7 @@ impl AppHost {
             self.focus_block_id = 1;
         }
         self.apps.push(app);
+        self.request_redraw();
     }
 
     pub fn app_mut(&mut self, idx: usize) -> &mut dyn App {
@@ -81,55 +92,59 @@ impl AppHost {
 
     pub fn layout_app(&mut self, idx: usize, bounds: Rect) {
         self.apps[idx].layout(bounds);
+        self.request_redraw();
     }
 
-    pub fn render_app_once(&mut self, idx: usize, fb: &mut FramebufferWriter, theme: &Theme) {
-        self.apps[idx].render(fb, theme);
+    pub fn render_app_once(&mut self, idx: usize, theme: &Theme) {
+        self.render_commands.clear();
+        self.apps[idx].collect_render(theme, &mut self.render_commands);
     }
 
-    /// Render the currently focused app
-    pub fn render_focused_app(&mut self, fb: &mut FramebufferWriter, theme: &Theme) {
-        if self.focus_app < self.apps.len() {
-            self.apps[self.focus_app].render(fb, theme);
-            self.apps[self.focus_app].overlay(fb, theme);
-
-            // Draw focus ring
-            let blocks = self.apps[self.focus_app].focus_blocks().to_vec();
-            if let Some(b) = blocks.iter().find(|b| b.id == self.focus_block_id) {
-                navigation::draw_focus_ring(fb, b.rect, Color::from_hex(0xFF6B6B));
-            }
+    pub fn render_focused_app(&mut self, theme: &Theme) {
+        if self.focus_app >= self.apps.len() {
+            return;
         }
+
+        self.render_commands.clear();
+        self.apps[self.focus_app].collect_render(theme, &mut self.render_commands);
+
+        self.overlay_commands.clear();
+        self.apps[self.focus_app].collect_overlay(theme, &mut self.overlay_commands);
+        self.draw_focus_ring(Color::from_hex(0xFF6B6B));
+
+        self.needs_redraw = false;
     }
 
-    /// Render all apps (for split-screen layout)
-    pub fn render_all_apps(&mut self, fb: &mut FramebufferWriter, theme: &Theme) {
+    pub fn render_all_apps(&mut self, theme: &Theme) {
+        self.render_commands.clear();
+
         for i in 0..self.apps.len() {
-            self.apps[i].render(fb, theme);
+            self.apps[i].collect_render(theme, &mut self.render_commands);
         }
-        // Draw focus ring on focused app
+
         if self.focus_app < self.apps.len() {
-            self.apps[self.focus_app].overlay(fb, theme);
-            let blocks = self.apps[self.focus_app].focus_blocks().to_vec();
-            if let Some(b) = blocks.iter().find(|b| b.id == self.focus_block_id) {
-                navigation::draw_focus_ring(fb, b.rect, Color::from_hex(0xFF6B6B));
-            }
+            self.overlay_commands.clear();
+            self.apps[self.focus_app].collect_overlay(theme, &mut self.overlay_commands);
+            self.draw_focus_ring(Color::from_hex(0xFF6B6B));
+        } else {
+            self.overlay_commands.clear();
         }
+
+        self.needs_redraw = false;
     }
 
-    /// Cycle to next app (Alt+Tab)
     pub fn cycle_focus(&mut self) {
         if self.apps.is_empty() {
             return;
         }
         self.focus_app = (self.focus_app + 1) % self.apps.len();
-        // Reset focus block to first block in new app
         let blocks = self.apps[self.focus_app].focus_blocks();
         if !blocks.is_empty() {
             self.focus_block_id = blocks[0].id;
         }
+        self.request_redraw();
     }
 
-    /// Switch to specific app by index
     pub fn switch_to_app(&mut self, idx: usize) -> bool {
         if idx < self.apps.len() {
             self.focus_app = idx;
@@ -137,13 +152,13 @@ impl AppHost {
             if !blocks.is_empty() {
                 self.focus_block_id = blocks[0].id;
             }
+            self.request_redraw();
             true
         } else {
             false
         }
     }
 
-    /// Handle mouse click - check if it's on a different app
     pub fn handle_mouse_click(&mut self, x: usize, y: usize) {
         for (idx, app) in self.apps.iter().enumerate() {
             let bounds = app.bounds();
@@ -155,34 +170,35 @@ impl AppHost {
                     if !blocks.is_empty() {
                         self.focus_block_id = blocks[0].id;
                     }
+                    self.request_redraw();
                 }
                 break;
             }
         }
     }
 
-    /// Get number of registered apps
     pub fn app_count(&self) -> usize {
         self.apps.len()
     }
 
-    /// Get currently focused app index
     pub fn focused_app_index(&self) -> usize {
         self.focus_app
     }
 
-    pub fn dispatch_event(
-        &mut self,
-        fb: &mut FramebufferWriter,
-        theme: &Theme,
-        event: AppEvent,
-        accent: Color,
-    ) {
+    pub fn render_commands(&self) -> &[RenderCommand] {
+        self.render_commands.as_slice()
+    }
+
+    pub fn overlay_commands(&self) -> &[RenderCommand] {
+        self.overlay_commands.as_slice()
+    }
+
+    pub fn dispatch_event(&mut self, event: AppEvent) {
         if self.apps.is_empty() {
             return;
         }
 
-        match event {
+        let changed = match event {
             AppEvent::KeyPress {
                 ch: _,
                 ctrl,
@@ -191,18 +207,56 @@ impl AppHost {
                 arrow: Some(dir),
             } if ctrl || alt => {
                 let blocks = self.apps[self.focus_app].focus_blocks().to_vec();
-                self.focus_block_id = navigation::move_focus(&blocks, self.focus_block_id, dir);
+                let next_focus = navigation::move_focus(&blocks, self.focus_block_id, dir);
+                let changed = next_focus != self.focus_block_id;
+                self.focus_block_id = next_focus;
+                changed
             }
-            _ => {
-                self.apps[self.focus_app].on_event(event);
-            }
+            _ => self.apps[self.focus_app].on_event(event),
+        };
+
+        if changed {
+            self.request_redraw();
         }
-        self.apps[self.focus_app].render(fb, theme);
-        fb.render_frame();
-        self.apps[self.focus_app].overlay(fb, theme);
+    }
+
+    pub fn request_redraw(&mut self) {
+        self.needs_redraw = true;
+    }
+
+    pub fn needs_redraw(&self) -> bool {
+        self.needs_redraw
+    }
+
+    pub fn compose(&mut self, theme: &Theme, accent: Color) {
+        self.render_commands.clear();
+
+        for i in 0..self.apps.len() {
+            if self.apps[i].bounds().x >= OFF_SCREEN_PARK_X {
+                continue;
+            }
+            self.apps[i].collect_render(theme, &mut self.render_commands);
+        }
+
+        self.overlay_commands.clear();
+        if self.focus_app < self.apps.len() {
+            self.apps[self.focus_app].collect_overlay(theme, &mut self.overlay_commands);
+            self.draw_focus_ring(accent);
+        }
+
+        self.needs_redraw = false;
+    }
+
+    pub fn flush(&self, fb: &mut crate::devices::framebuffer::framebuffer::FramebufferWriter) {
+        flush_commands(fb, self.render_commands.as_slice());
+        flush_commands(fb, self.overlay_commands.as_slice());
+    }
+
+    fn draw_focus_ring(&mut self, accent: Color) {
         let blocks = self.apps[self.focus_app].focus_blocks().to_vec();
         if let Some(b) = blocks.iter().find(|b| b.id == self.focus_block_id) {
-            navigation::draw_focus_ring(fb, b.rect, accent);
+            self.overlay_commands
+                .push(RenderCommand::stroke_rect(b.rect, accent, 2));
         }
     }
 }

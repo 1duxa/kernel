@@ -22,7 +22,7 @@
 //! PIDs are allocated atomically from a counter starting at 1.
 //! PID 0 indicates no process (kernel context).
 
-use crate::syscalls::dispatcher::{SyscallResult, SyscallError};
+use crate::syscalls::dispatcher::{SyscallError, SyscallResult};
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 static NEXT_PID: AtomicUsize = AtomicUsize::new(1);
@@ -46,7 +46,7 @@ static PROCESS_TABLE_LOCK: spin::Mutex<()> = spin::Mutex::new(());
 pub fn sys_exit(status: i32) -> SyscallResult {
     let pid = CURRENT_PID.load(Ordering::Relaxed);
     crate::println!("Process {} exiting with status: {}", pid, status);
-    
+
     loop {
         ::core::hint::spin_loop();
     }
@@ -64,18 +64,18 @@ pub fn sys_getpid() -> SyscallResult {
 pub fn sys_fork() -> SyscallResult {
     let _guard = PROCESS_TABLE_LOCK.lock();
     let parent_pid = CURRENT_PID.load(Ordering::Relaxed);
-    
+
     let child_pid = NEXT_PID.fetch_add(1, Ordering::SeqCst);
     if child_pid > 255 {
         return Err(SyscallError::NoMemory);
     }
-    
+
     unsafe {
         let child_page_table = match crate::memory::create_process_page_table() {
             Ok(frame) => frame.start_address().as_u64(),
             Err(_) => return Err(SyscallError::NoMemory),
         };
-        
+
         PROCESS_TABLE[child_pid] = Some(ProcessContext {
             pid: child_pid,
             parent_pid,
@@ -83,7 +83,7 @@ pub fn sys_fork() -> SyscallResult {
             page_table: child_page_table,
         });
     }
-    
+
     Ok(child_pid)
 }
 
@@ -91,7 +91,7 @@ pub fn sys_exec(path: *const u8, _argv: *const *const u8) -> SyscallResult {
     if path.is_null() {
         return Err(SyscallError::InvalidArgument);
     }
-    
+
     let code_ptr = path as *const u8;
     let code_size = unsafe {
         let mut size = 0;
@@ -100,11 +100,11 @@ pub fn sys_exec(path: *const u8, _argv: *const *const u8) -> SyscallResult {
         }
         size
     };
-    
+
     if code_size == 0 || code_size > 10 * 1024 * 1024 {
         return Err(SyscallError::InvalidArgument);
     }
-    
+
     match unsafe { crate::memory::sys_pstart(code_ptr, code_size) } {
         Ok(pid) => {
             CURRENT_PID.store(pid, Ordering::Relaxed);
@@ -117,9 +117,8 @@ pub fn sys_exec(path: *const u8, _argv: *const *const u8) -> SyscallResult {
 pub fn sys_wait(_status: *mut i32) -> SyscallResult {
     let pid = CURRENT_PID.load(Ordering::Relaxed);
     crate::println!("Process {} waiting for children", pid);
-    
+
     loop {
         ::core::hint::spin_loop();
     }
 }
-

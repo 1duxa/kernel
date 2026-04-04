@@ -16,5 +16,6 @@
 //! - Layout and rendering
 //! - Focus management
 
+pub mod editor_app;
 pub mod logs_app;
 pub mod terminal_app;

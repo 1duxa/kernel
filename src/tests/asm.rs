@@ -1,20 +1,4 @@
-//! # JIT Assembly Executor
-//!
-//! Executes dynamically generated x86_64 machine code by allocating
-//! executable memory via `sys_mmap` and running the provided bytecode.
-//!
-//! ## Safety
-//!
-//! Executing arbitrary bytecode is inherently unsafe and can crash the kernel.
-//! The caller must ensure the bytecode is valid x86_64 code that returns via `ret`.
-//!
-//! ## Memory Management
-//!
-//! - Uses `sys_mmap` to allocate RWX pages for code execution
-//! - Falls back to heap allocation if mmap fails (may fail due to NX bit)
-//! - Memory is automatically freed after execution
-
-use crate::memory::{sys_mmap, sys_munmap};
+use crate::memory::{mmap::sys_mmap, munmap::sys_munmap};
 use crate::{log_error, log_info, println};
 use alloc::alloc::{alloc, dealloc};
 use alloc::{string::String, vec::Vec};
@@ -22,10 +6,10 @@ use core::alloc::Layout;
 
 const MAX_CODE_SIZE: usize = 4096;
 const PAGE_SIZE: usize = 4096;
+const PROT_READ: usize = 0x1;
 const PROT_WRITE: usize = 0x2;
 const PROT_EXEC: usize = 0x4;
 
-/// JIT code executor for running dynamically generated machine code. UNSAFE!!!
 pub struct AsmExecutor;
 
 impl AsmExecutor {
@@ -43,8 +27,13 @@ impl AsmExecutor {
         let map_size = ((code.len() + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
         log_info!("ASM: Executing {} bytes", code.len());
 
-        match sys_mmap(0, map_size, PROT_WRITE | PROT_EXEC, 0, 0, 0) {
+        match sys_mmap(0, map_size, PROT_READ | PROT_WRITE | PROT_EXEC, 0, 0, 0) {
             Ok(virt_addr) => {
+                if virt_addr == 0 {
+                    log_error!("ASM: mmap returned null address");
+                    return Err(String::from("mmap returned null address"));
+                }
+
                 println!("ASM_EXECUTOR: mmap {:#x}", virt_addr);
                 let result = unsafe {
                     let dst = virt_addr as *mut u8;
@@ -56,28 +45,14 @@ impl AsmExecutor {
                 Ok(result)
             }
             Err(e) => {
-                println!("ASM_EXECUTOR: mmap failed, heap fallback: {:?}", e);
-                Self::execute_on_heap(code)
+                log_error!(
+                    "ASM: mmap failed: {:?} — cannot execute on heap (NX bit)",
+                    e
+                );
+                Err(String::from(
+                    "mmap failed; heap execution blocked by NX bit",
+                ))
             }
-        }
-    }
-
-    fn execute_on_heap(code: &[u8]) -> Result<u64, String> {
-        unsafe {
-            let layout = Layout::from_size_align_unchecked(code.len(), 16);
-            let code_ptr = alloc(layout);
-
-            if code_ptr.is_null() {
-                log_error!("ASM: Heap allocation failed");
-                return Err(String::from("Failed to allocate code memory"));
-            }
-
-            core::ptr::copy_nonoverlapping(code.as_ptr(), code_ptr, code.len());
-            let result = execute_code(code_ptr as *const ());
-            dealloc(code_ptr, layout);
-
-            log_info!("ASM: Heap result = {}", result);
-            Ok(result)
         }
     }
 }
@@ -89,7 +64,6 @@ extern "C" fn execute_code(code_ptr: *const ()) -> u64 {
     }
 }
 
-/// Pre-built assembly programs for testing.
 pub struct AsmProgram;
 
 impl AsmProgram {
@@ -98,13 +72,15 @@ impl AsmProgram {
         &[0xb8, 0x2a, 0x00, 0x00, 0x00, 0xc3]
     }
 
-    /// Returns 3: `mov eax, 1; mov ebx, 2; add eax, ebx; ret`
+    /// Returns 3: `mov eax, 1; mov ecx, 2; add eax, ecx; ret`
     pub fn simple_add_1_2() -> &'static [u8] {
         &[
-            0xb8, 0x01, 0x00, 0x00, 0x00, 0xbb, 0x02, 0x00, 0x00, 0x00, 0x01, 0xd8, 0xc3,
+            0xb8, 0x01, 0x00, 0x00, 0x00, // mov eax, 1
+            0xb9, 0x02, 0x00, 0x00, 0x00, // mov ecx, 2
+            0x01, 0xc8, // add eax, ecx
+            0xc3, // ret
         ]
     }
-
     /// Build code that returns a specific 64-bit value.
     pub fn return_argument(value: u64) -> Vec<u8> {
         let mut code = Vec::new();

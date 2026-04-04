@@ -1,26 +1,22 @@
-//! # Logs Application
-//!
-//! Scrollable kernel log viewer with color-coded log levels.
-//!
-//! ## Shortcuts
-//!
-//! | Key | Action |
-//! |-----|--------|
-//! | Arrow Up/Down | Scroll line by line |
-//! | `[` / `]` | Page up/down |
-//! | Ctrl+L | Clear logs |
+use crate::{
+    app::{App, AppEvent, Arrow, FocusBlock},
+    debug_pipeline::{self, DebugEvent},
 
-use crate::app::{App, AppEvent, Arrow, FocusBlock};
-use crate::devices::framebuffer::framebuffer::FramebufferWriter;
-use crate::terminal_v2::Terminal;
-use crate::ui_provider::{color::Color, shape::Rect, theme::Theme};
-use alloc::{string::String, vec::Vec};
-use spin::Mutex;
+    ui_provider::{
+        color::Color,
+        render::{RenderList, TextStyle},
+        shape::Rect,
+        theme::Theme,
+    },
+};
+use alloc::{format, string::String, vec, vec::Vec};
 
 const MAX_LOG_LINES: usize = 500;
+const CHAR_WIDTH: usize = 10;
+const CHAR_HEIGHT: usize = 20;
+const HEADER_ROWS: usize = 2;
 
-static LOG_BUFFER: Mutex<LogBuffer> = Mutex::new(LogBuffer::new());
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LogLevel {
     Debug,
     Info,
@@ -31,10 +27,10 @@ pub enum LogLevel {
 impl LogLevel {
     pub fn color(&self) -> Color {
         match self {
-            LogLevel::Debug => Color::from_hex(0x6C7086), // Gray
-            LogLevel::Info => Color::from_hex(0x89B4FA),  // Blue
-            LogLevel::Warn => Color::from_hex(0xF9E2AF),  // Yellow
-            LogLevel::Error => Color::from_hex(0xF38BA8), // Red
+            LogLevel::Debug => Color::from_hex(0x6C7086),
+            LogLevel::Info => Color::from_hex(0x89B4FA),
+            LogLevel::Warn => Color::from_hex(0xF9E2AF),
+            LogLevel::Error => Color::from_hex(0xF38BA8),
         }
     }
 
@@ -48,60 +44,10 @@ impl LogLevel {
     }
 }
 
-#[derive(Clone)]
-pub struct LogEntry {
-    pub level: LogLevel,
-    pub message: String,
-}
-
-/// Circular buffer for log entries
-pub struct LogBuffer {
-    entries: Vec<LogEntry>,
-    dirty: bool,
-}
-
-impl LogBuffer {
-    pub const fn new() -> Self {
-        Self {
-            entries: Vec::new(),
-            dirty: true,
-        }
-    }
-
-    pub fn push(&mut self, level: LogLevel, message: String) {
-        if self.entries.len() >= MAX_LOG_LINES {
-            // Remove oldest entry
-            self.entries.remove(0);
-        }
-        self.entries.push(LogEntry { level, message });
-        self.dirty = true;
-    }
-
-    pub fn clear(&mut self) {
-        self.entries.clear();
-        self.dirty = true;
-    }
-
-    pub fn entries(&self) -> &[LogEntry] {
-        &self.entries
-    }
-
-    pub fn is_dirty(&self) -> bool {
-        self.dirty
-    }
-
-    pub fn mark_clean(&mut self) {
-        self.dirty = false;
-    }
-
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-}
-
 pub fn log(level: LogLevel, message: &str) {
-    let mut buffer = LOG_BUFFER.lock();
-    buffer.push(level, String::from(message));
+    let category = debug_pipeline::DebugCategory::General;
+    let source = "logs_app::log";
+    let _ = debug_pipeline::push(level, category, source, String::from(message));
 }
 
 #[macro_export]
@@ -145,7 +91,6 @@ macro_rules! log_error {
 }
 
 pub struct LogsApp {
-    term: Terminal,
     block: FocusBlock,
     bounds: Rect,
     scroll_offset: usize,
@@ -153,9 +98,8 @@ pub struct LogsApp {
 }
 
 impl LogsApp {
-    pub fn new(cols: usize, rows: usize, theme: &Theme) -> Self {
+    pub fn new(_width: usize, _height: usize) -> Self {
         Self {
-            term: Terminal::new(cols, rows, theme),
             block: FocusBlock {
                 id: 2,
                 rect: Rect::new(0, 0, 0, 0),
@@ -166,132 +110,157 @@ impl LogsApp {
         }
     }
 
-    fn refresh_display(&mut self) {
-        self.term.write("\x1b[H"); // Move cursor to top-left
+    fn rows_in_bounds(&self) -> usize {
+        (self.bounds.h / CHAR_HEIGHT).max(1)
+    }
 
-        let buffer = LOG_BUFFER.lock();
-        let entries = buffer.entries();
-        let (cols, rows) = self.term.size();
+    fn cols_in_bounds(&self) -> usize {
+        (self.bounds.w / CHAR_WIDTH).max(1)
+    }
 
-        let total = entries.len();
-        let visible_rows = rows.saturating_sub(2); // Leave room for header
+    fn visible_rows(&self) -> usize {
+        self.rows_in_bounds().saturating_sub(HEADER_ROWS).max(1)
+    }
 
-        if self.scroll_offset + visible_rows >= self.last_entry_count || self.last_entry_count == 0
-        {
+    fn sync_scroll_to_tail(&mut self, total: usize, visible_rows: usize) {
+        if self.scroll_offset + visible_rows >= self.last_entry_count || self.last_entry_count == 0 {
             self.scroll_offset = total.saturating_sub(visible_rows);
         }
-
         self.last_entry_count = total;
+    }
 
-        // Header line
-        self.term.write("\x1b[1;36m=== Kernel Logs ===\x1b[0m");
-        // Clear to end of line
-        self.term.write("\x1b[K\n");
+    fn truncate_to_cols(text: &str, cols: usize) -> String {
+        text.chars().take(cols).collect()
+    }
 
-        // Status line
-        let mut line_str = String::from("Lines: ");
-        line_str.push_str(&format_usize(total));
-        line_str.push_str(" | Scroll: ");
-        line_str.push_str(&format_usize(self.scroll_offset));
-        self.term.write(&line_str);
-        self.term.write("\x1b[K\n"); // Clear to end of line
+    fn draw_line(
+        &self,
+        out: &mut RenderList,
+        row: usize,
+        text: &str,
+        fg: Color,
+        bg: Color,
+    ) {
+        let y = self.bounds.y + row * CHAR_HEIGHT;
+        out.fill_rect(
+            Rect::new(self.bounds.x, y, self.bounds.w, CHAR_HEIGHT),
+            bg,
+        );
 
-        // visible entries
-        let start = self.scroll_offset;
-        let end = (start + visible_rows).min(total);
-
-        for i in start..end {
-            let entry = &entries[i];
-
-            match entry.level {
-                LogLevel::Debug => self.term.write("\x1b[90m"), // Gray
-                LogLevel::Info => self.term.write("\x1b[36m"),  // Cyan
-                LogLevel::Warn => self.term.write("\x1b[33m"),  // Yellow
-                LogLevel::Error => self.term.write("\x1b[31m"), // Red
-            }
-
-            self.term.write(entry.level.prefix());
-            self.term.write(" ");
-            // Truncate message to fit in terminal width
-            let max_msg_len = cols.saturating_sub(8); // Account for prefix
-            if entry.message.len() > max_msg_len {
-                self.term.write(&entry.message[..max_msg_len]);
-            } else {
-                self.term.write(&entry.message);
-            }
-            self.term.write("\x1b[0m\x1b[K\n"); // Reset color + clear to EOL
+        if !text.is_empty() {
+            out.styled_text(
+                text,
+                self.bounds.x,
+                y,
+                TextStyle::new(fg),
+            );
         }
+    }
 
-        // Clear remaining lines if fewer entries than visible rows
-        let lines_written = end - start;
-        for _ in lines_written..visible_rows {
-            self.term.write("\x1b[K\n"); // Clear entire line
+    fn collect_header(&self, out: &mut RenderList, total: usize, theme: &Theme) {
+        let cols = self.cols_in_bounds();
+
+        self.draw_line(
+            out,
+            0,
+            &Self::truncate_to_cols("=== Kernel Logs ===", cols),
+            theme.accent,
+            theme.surface,
+        );
+
+        let status = format!(
+            "Lines: {} | Scroll: {} | Pipeline: unified",
+            total, self.scroll_offset
+        );
+        self.draw_line(
+            out,
+            1,
+            &Self::truncate_to_cols(&status, cols),
+            theme.muted,
+            theme.surface,
+        );
+    }
+
+    fn collect_entries(&self, out: &mut RenderList, events: &[DebugEvent], theme: &Theme) {
+        let cols = self.cols_in_bounds();
+        let visible_rows = self.visible_rows();
+        let start = self.scroll_offset.min(events.len());
+        let end = (start + visible_rows).min(events.len());
+
+        for screen_row in 0..visible_rows {
+            let app_row = HEADER_ROWS + screen_row;
+            let entry_idx = start + screen_row;
+
+            if entry_idx < end {
+                let event = &events[entry_idx];
+                let line = Self::truncate_to_cols(&event.format_line(), cols);
+                self.draw_line(out, app_row, &line, event.level.color(), theme.surface);
+            } else {
+                self.draw_line(out, app_row, "", theme.muted, theme.surface);
+            }
         }
     }
 }
 
 impl App for LogsApp {
     fn init(&mut self) {
+        if !debug_pipeline::is_initialized() {
+            debug_pipeline::init();
+        }
+
         log(LogLevel::Info, "Logs app initialized");
         log(LogLevel::Info, "Welcome to DuxOS!");
-        log(LogLevel::Debug, "Press F1 for Terminal, F2 for Logs");
+        log(LogLevel::Debug, "Unified debug pipeline connected");
         log(LogLevel::Debug, "Arrow keys to scroll logs");
-        self.refresh_display();
     }
 
-    fn on_event(&mut self, event: AppEvent) {
+    fn on_event(&mut self, event: AppEvent) -> bool {
         match event {
-            AppEvent::KeyPress {
-                ch, ctrl, arrow, ..
-            } => {
-                let (_, rows) = self.term.size();
-                let visible_rows = rows.saturating_sub(2);
-                let total = LOG_BUFFER.lock().len();
+            AppEvent::KeyPress { ch, ctrl, arrow, .. } => {
+                let visible_rows = self.visible_rows();
+                let total = debug_pipeline::len().min(MAX_LOG_LINES);
+                let old_scroll_offset = self.scroll_offset;
+                let old_last_entry_count = self.last_entry_count;
 
                 if let Some(dir) = arrow {
                     match dir {
                         Arrow::Up => {
                             self.scroll_offset = self.scroll_offset.saturating_sub(1);
-                            self.refresh_display();
                         }
                         Arrow::Down => {
                             if self.scroll_offset + visible_rows < total {
                                 self.scroll_offset += 1;
                             }
-                            self.refresh_display();
                         }
                         _ => {}
                     }
-                    return;
+                    return self.scroll_offset != old_scroll_offset;
                 }
 
                 if ctrl && ch == 'l' {
-                    LOG_BUFFER.lock().clear();
+                    debug_pipeline::clear();
                     self.scroll_offset = 0;
-                    self.refresh_display();
-                    return;
+                    self.last_entry_count = 0;
+                    return self.scroll_offset != old_scroll_offset
+                        || self.last_entry_count != old_last_entry_count
+                        || total != 0;
                 }
 
                 match ch {
                     '[' => {
                         self.scroll_offset = self.scroll_offset.saturating_sub(visible_rows);
-                        self.refresh_display();
                     }
                     ']' => {
                         let max_offset = total.saturating_sub(visible_rows);
                         self.scroll_offset = (self.scroll_offset + visible_rows).min(max_offset);
-                        self.refresh_display();
                     }
                     _ => {}
                 }
+
+                self.scroll_offset != old_scroll_offset
             }
-            AppEvent::Tick => {
-                if LOG_BUFFER.lock().is_dirty() {
-                    self.refresh_display();
-                    LOG_BUFFER.lock().mark_clean();
-                }
-            }
-            _ => {}
+            AppEvent::Tick => false,
+            AppEvent::Mouse(_) => false,
         }
     }
 
@@ -300,26 +269,22 @@ impl App for LogsApp {
         self.block.rect = bounds;
     }
 
-    fn render(&mut self, fb: &mut FramebufferWriter, _theme: &Theme) {
-        {
-            let buffer = LOG_BUFFER.lock();
-            if buffer.len() != self.last_entry_count {
-                drop(buffer);
-                self.refresh_display();
-            }
+    fn collect_render(
+        &mut self,
+        theme: &Theme,
+        out: &mut RenderList,
+    ) {
+        let events = debug_pipeline::snapshot_tail(MAX_LOG_LINES);
+        let total = events.len();
+        let visible_rows = self.visible_rows();
+
+        self.sync_scroll_to_tail(total, visible_rows);
+        self.collect_header(out, total, theme);
+        self.collect_entries(out, &events, theme);
+
+        if debug_pipeline::is_dirty() {
+            debug_pipeline::mark_clean();
         }
-
-        self.term.render_into_rect(
-            fb,
-            self.bounds.x,
-            self.bounds.y,
-            self.bounds.w,
-            self.bounds.h,
-        );
-    }
-
-    fn overlay(&mut self, fb: &mut FramebufferWriter, _theme: &Theme) {
-        self.term.draw_cursor(fb, self.bounds.x, self.bounds.y);
     }
 
     fn focus_blocks(&mut self) -> &mut [FocusBlock] {
@@ -329,28 +294,4 @@ impl App for LogsApp {
     fn bounds(&self) -> Rect {
         self.bounds
     }
-}
-
-fn format_usize(n: usize) -> String {
-    if n == 0 {
-        return String::from("0");
-    }
-
-    let mut s = String::new();
-    let mut num = n;
-    let mut digits = [0u8; 20];
-    let mut i = 0;
-
-    while num > 0 {
-        digits[i] = (num % 10) as u8;
-        num /= 10;
-        i += 1;
-    }
-
-    while i > 0 {
-        i -= 1;
-        s.push((b'0' + digits[i]) as char);
-    }
-
-    s
 }
