@@ -146,7 +146,6 @@ Example — count 1 to 5, print sum
     fn vm_demo_advanced() -> CommandResult {
         CommandResult::Output(String::from(crate::vm::example_program_advanced()))
     }
-    // ── vm_run ────────────────────────────────────────────────────────────────
 
     fn vm_run(full_input: &str) -> CommandResult {
         let source = match full_input.strip_prefix("vm_run") {
@@ -167,7 +166,6 @@ Example — count 1 to 5, print sum
             Ok(result) => {
                 let mut out = String::new();
 
-                // Output from VM print instructions
                 let vm_output = result.output_str();
                 if vm_output.is_empty() {
                     out.push_str("(no output)\n");
@@ -178,7 +176,6 @@ Example — count 1 to 5, print sum
                     }
                 }
 
-                // Execution summary
                 out.push_str(&format!(
                     "--- steps: {}  halted: {}  stack: {}\n",
                     result.steps,
@@ -188,14 +185,10 @@ Example — count 1 to 5, print sum
 
                 CommandResult::Output(out)
             }
-            Err(err) => {
-                // VmError no longer carries String — call to_display() to get one.
-                CommandResult::Error(err.to_display())
-            }
+            Err(err) => CommandResult::Error(err.to_display()),
         }
     }
 
-    /// Convert `push 1 ; store 0 ; ...` into one instruction per line.
     fn normalize_inline(source: &str) -> String {
         let mut out = String::new();
         let mut first = true;
@@ -216,7 +209,6 @@ Example — count 1 to 5, print sum
         out
     }
 
-    /// Format a stack slice as `[a, b, c]` — allocates a String for display.
     fn fmt_stack(values: &[i64]) -> String {
         let mut out = String::from("[");
         for (i, v) in values.iter().enumerate() {
@@ -228,8 +220,6 @@ Example — count 1 to 5, print sum
         out.push(']');
         out
     }
-
-    // ── test commands ─────────────────────────────────────────────────────────
 
     fn test_all() -> CommandResult {
         CommandResult::Output(crate::tests::test_env::test_all())

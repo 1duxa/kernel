@@ -25,9 +25,8 @@ pub fn sys_brk(addr: u64) -> Result<usize, crate::syscalls::dispatcher::SyscallE
 
     let old_brk = PROGRAM_BREAK.load(Ordering::Relaxed);
 
-    // Only map if growing
     if addr > old_brk {
-        let start_page = (old_brk + 4095) & !4095; // align up
+        let start_page = (old_brk + 4095) & !4095;
         let end_page = (addr + 4095) & !4095;
 
         let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;

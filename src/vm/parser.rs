@@ -1,23 +1,6 @@
 //! # VM Parser
 //!
 //! Text-to-bytecode parser for the kernel VM.
-//!
-//! ## Syntax
-//!
-//! - One instruction per line
-//! - Empty lines are ignored
-//! - Comments begin with `#`
-//! - Labels end with `:`
-//! - Jump targets can be numeric instruction indices or labels
-//!
-//! ## Example
-//!
-//! start:
-//! push 2
-//! push 40
-//! add
-//! print
-//! halt
 
 use crate::vm::bytecode::{Instruction, Program};
 use alloc::{

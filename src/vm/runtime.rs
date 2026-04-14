@@ -1,29 +1,9 @@
 //! # VM Runtime
 //!
 //! Execution engine for the kernel bytecode VM.
-//!
-//! ## Memory model
-//!
-//! `Vm` contains zero heap-allocated fields. All runtime state lives in
-//! fixed-size arrays embedded directly in the struct:
-//!
-//! | Field          | Size    | Purpose                    |
-//! |----------------|---------|----------------------------|
-//! | `stack`        | 8 KB    | Operand stack (1024 i64)   |
-//! | `locals`       | 2 KB    | 256 local variable slots   |
-//! | `output`       | 8 KB    | Output byte buffer         |
-//!
-//! Total struct size: ~18 KB. The struct is placed into a `sys_mmap`'d page
-//! by `VmProcess`, keeping it entirely off the kernel heap.
-//!
-//! `VmResult` also uses fixed-size arrays so no heap allocation happens
-//! when returning results to callers.
-//!
-//! `VmError` still uses `&'static str` for messages — no `String`, no heap.
 
 use super::bytecode::{Instruction, Program};
 
-/// Per-instruction VM tracing (debug builds only — thousands of lines would stress the heap).
 macro_rules! vm_trace {
     ($($t:tt)*) => {{
         #[cfg(debug_assertions)]
@@ -31,34 +11,21 @@ macro_rules! vm_trace {
     }};
 }
 
-/// VM lifecycle (start / finish / errors): always goes to the debug pipeline so the Logs app (F2) shows it.
 macro_rules! vm_event {
     ($($t:tt)*) => {{
         crate::log_info!($($t)*);
     }};
 }
 
-// ── limits ────────────────────────────────────────────────────────────────────
-
 pub const MAX_STEPS: usize = 100_000;
 pub const MAX_STACK: usize = 1024;
 pub const MAX_OUTPUT_BYTES: usize = 8192;
 pub const MAX_LOCALS: usize = 256;
 
-// ── error ─────────────────────────────────────────────────────────────────────
-
-/// A VM error with a static message and an optional numeric detail value.
-///
-/// No heap allocation — callers that need a full formatted string can
-/// call `.to_display()` which builds one on demand using the kernel allocator,
-/// but normal error propagation is completely heap-free.
 #[derive(Clone, Debug, PartialEq)]
 pub enum VmError {
-    /// Error produced during source parsing.
     Parse(&'static str),
-    /// Error produced during bytecode execution.
     Runtime(&'static str),
-    /// Error with a numeric context value (e.g. bad slot index, bad jump target).
     RuntimeN(&'static str, usize),
 }
 
@@ -75,7 +42,6 @@ impl VmError {
         Self::RuntimeN(msg, n)
     }
 
-    /// Build a displayable string (allocates — only call for user-facing output).
     pub fn to_display(&self) -> alloc::string::String {
         use alloc::format;
         match self {
@@ -85,7 +51,6 @@ impl VmError {
         }
     }
 
-    /// Return just the message &str without allocating.
     pub fn message(&self) -> &'static str {
         match self {
             VmError::Parse(m) | VmError::Runtime(m) | VmError::RuntimeN(m, _) => m,
@@ -93,11 +58,6 @@ impl VmError {
     }
 }
 
-// ── result ────────────────────────────────────────────────────────────────────
-
-/// The result of a completed VM execution.
-///
-/// All fields are fixed-size — no heap allocation.
 #[derive(Clone, Debug)]
 pub struct VmResult {
     pub output: [u8; MAX_OUTPUT_BYTES],

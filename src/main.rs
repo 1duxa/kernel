@@ -219,7 +219,6 @@ fn init_ui(theme: &Theme, fb_width: usize, fb_height: usize) -> AppHost {
         fb.clear(theme.background);
         host.compose(theme, theme.accent);
         host.flush(fb);
-        // Draw tabs
         draw_tabs(fb, &layout, theme, host.focused_app_index());
         fb.render_frame();
     }
@@ -326,7 +325,6 @@ fn collect_pending_events(
                     }
                 }
 
-                // If not on tab, pass to app
                 if !clicked_tab {
                     host.handle_mouse_click(mx, my);
                 }
@@ -371,29 +369,23 @@ fn render_pending(
     let mut guard = FRAMEBUFFER.lock();
     let fb = guard.as_mut().unwrap();
 
-    // Clear full screen to ensure clean rendering
     fb.clear(theme.background);
 
-    // Move unfocused apps off-screen so they don't overlap when rendering
     let focused_idx = host.focused_app_index();
     let content_bounds = layout.app_bounds();
-    let off_screen = Rect::new(99999, 99999, 1, 1); // Off-screen bounds
+    let off_screen = Rect::new(99999, 99999, 1, 1);
 
     for idx in 0..3 {
         if idx != focused_idx {
-            // Move non-focused apps off-screen
             host.layout_app(idx, off_screen);
         } else {
-            // Keep focused app at proper bounds
             host.layout_app(idx, content_bounds);
         }
     }
 
-    // Now render all apps - only focused one will be visible
     host.compose(theme, theme.accent);
     host.flush(fb);
 
-    // Draw tabs on top
     draw_tabs(fb, layout, theme, focused_idx);
 
     mouse_cursor::draw(fb);
