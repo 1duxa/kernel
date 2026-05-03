@@ -84,6 +84,10 @@ enum ParsedInstruction {
     Store(u8),
     Print,
     Halt,
+    SetPixel,
+    FillRect,
+    ClearScr,
+    Present,
 }
 
 pub fn parse_program(source: &str) -> Result<Program, ParseError> {
@@ -162,6 +166,10 @@ fn resolve_instruction(
         ParsedInstruction::Store(slot) => Instruction::Store(slot),
         ParsedInstruction::Print => Instruction::Print,
         ParsedInstruction::Halt => Instruction::Halt,
+        ParsedInstruction::SetPixel => Instruction::SetPixel,
+        ParsedInstruction::FillRect => Instruction::FillRect,
+        ParsedInstruction::ClearScr => Instruction::ClearScr,
+        ParsedInstruction::Present => Instruction::Present,
     })
 }
 
@@ -212,6 +220,10 @@ fn parse_instruction(line: &str, line_no: usize) -> Result<ParsedInstruction, Pa
         "lt" => no_args(parts, line_no, "lt", ParsedInstruction::Lt),
         "print" => no_args(parts, line_no, "print", ParsedInstruction::Print),
         "halt" => no_args(parts, line_no, "halt", ParsedInstruction::Halt),
+        "setpixel" => no_args(parts, line_no, "setpixel", ParsedInstruction::SetPixel),
+        "fillrect" => no_args(parts, line_no, "fillrect", ParsedInstruction::FillRect),
+        "clearscr" => no_args(parts, line_no, "clearscr", ParsedInstruction::ClearScr),
+        "present" => no_args(parts, line_no, "present", ParsedInstruction::Present),
         "jmp" => Ok(ParsedInstruction::Jmp(parse_target(parts, line_no, "jmp")?)),
         "jz" => Ok(ParsedInstruction::Jz(parse_target(parts, line_no, "jz")?)),
         "jnz" => Ok(ParsedInstruction::Jnz(parse_target(parts, line_no, "jnz")?)),

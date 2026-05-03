@@ -6,7 +6,7 @@ use crate::ui_provider::{
     shape::Rect,
     theme::Theme,
 };
-use crate::vm::{compile_and_run, execute_program_in_process, example_program, VmError, VmResult};
+use crate::vm::{compile_and_run, example_draw_program, execute_program_in_process, VmError, VmResult};
 use alloc::{format, string::String, vec, vec::Vec};
 
 const GUTTER_WIDTH: usize = 6;
@@ -58,7 +58,7 @@ pub struct EditorApp {
 impl EditorApp {
     pub fn new(_width: usize, _height: usize) -> Self {
         let mut lines = Vec::new();
-        for line in example_program().lines() {
+        for line in example_draw_program().lines() {
             lines.push(String::from(line));
         }
         if lines.is_empty() {

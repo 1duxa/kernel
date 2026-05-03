@@ -17,7 +17,7 @@ macro_rules! vm_event {
     }};
 }
 
-pub const MAX_STEPS: usize = 100_000;
+pub const MAX_STEPS: usize = usize::MAX;
 pub const MAX_STACK: usize = 1024;
 pub const MAX_OUTPUT_BYTES: usize = 8192;
 pub const MAX_LOCALS: usize = 256;
@@ -311,6 +311,48 @@ impl Vm {
                     vm_trace!("   → HALT - execution finished");
                     self.halted = true;
                 }
+                Instruction::SetPixel => {
+                    let color = self.pop()?;
+                    let y = self.pop()?;
+                    let x = self.pop()?;
+                    if x >= 0 && y >= 0 {
+                        let c = color_from_packed(color);
+                        let mut guard =
+                            crate::devices::framebuffer::framebuffer::FRAMEBUFFER.lock();
+                        if let Some(fb) = guard.as_mut() {
+                            fb.put_pixel(x as usize, y as usize, c);
+                        }
+                    }
+                }
+                Instruction::FillRect => {
+                    let color = self.pop()?;
+                    let h = self.pop()?;
+                    let w = self.pop()?;
+                    let y = self.pop()?;
+                    let x = self.pop()?;
+                    if x >= 0 && y >= 0 && w > 0 && h > 0 {
+                        let c = color_from_packed(color);
+                        let mut guard =
+                            crate::devices::framebuffer::framebuffer::FRAMEBUFFER.lock();
+                        if let Some(fb) = guard.as_mut() {
+                            fb.fill_rect(x as usize, y as usize, w as usize, h as usize, c);
+                        }
+                    }
+                }
+                Instruction::ClearScr => {
+                    let color = self.pop()?;
+                    let c = color_from_packed(color);
+                    let mut guard = crate::devices::framebuffer::framebuffer::FRAMEBUFFER.lock();
+                    if let Some(fb) = guard.as_mut() {
+                        fb.clear(c);
+                    }
+                }
+                Instruction::Present => {
+                    let mut guard = crate::devices::framebuffer::framebuffer::FRAMEBUFFER.lock();
+                    if let Some(fb) = guard.as_mut() {
+                        fb.render_frame();
+                    }
+                }
             }
 
             self.ip += 1;
@@ -428,6 +470,14 @@ fn fmt_i64(mut n: i64, buf: &mut [u8]) -> &[u8] {
     }
 
     &buf[pos..]
+}
+
+fn color_from_packed(packed: i64) -> crate::ui_provider::color::Color {
+    crate::ui_provider::color::Color::new(
+        ((packed >> 16) & 0xFF) as u8,
+        ((packed >> 8) & 0xFF) as u8,
+        (packed & 0xFF) as u8,
+    )
 }
 
 pub fn compile_and_run(source: &str) -> Result<VmResult, VmError> {

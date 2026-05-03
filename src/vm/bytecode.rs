@@ -24,6 +24,11 @@ pub enum Instruction {
     Store(u8),
     Print,
     Halt,
+    // Drawing — args on stack, colors packed as 0xRRGGBB
+    SetPixel, // pop x, y, color → put_pixel
+    FillRect, // pop x, y, w, h, color → fill_rect
+    ClearScr, // pop color → clear
+    Present,  // → render_frame
 }
 
 #[derive(Clone, Debug, Default)]
@@ -72,6 +77,45 @@ print
 halt
 "
 }
+/// Bouncing red rectangle — loops forever.
+/// local 0 = x,  local 1 = dx (velocity)
+pub fn example_draw_program() -> &'static str {
+    "push 0
+store 0
+push 3
+store 1
+loop:
+push 0
+clearscr
+load 0
+push 200
+push 80
+push 60
+push 16711680
+fillrect
+present
+load 0
+load 1
+add
+store 0
+load 0
+push 700
+gt
+jz check_left
+push -3
+store 1
+jmp loop
+check_left:
+load 0
+push 0
+lt
+jz loop
+push 3
+store 1
+jmp loop
+"
+}
+
 ///factorial of 6 (720) using a loop + locals
 pub fn example_program_advanced() -> &'static str {
     "push 6          # n = 6
